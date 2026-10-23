@@ -468,6 +468,10 @@ public class FoliaInnerTubePlugin extends Plugin {
         }
         JSObject stream = new JSObject();
         stream.put("url", url);
+        // 取流要带铸链这个客户端的 UA：googlevideo 按铸链时的请求形态认人，换一个 UA
+        // 取流会被拒（真机实证：回环代理的硬编码 Chrome UA 换上后服务端回 502 空包，
+        // 元素报 Format error）。Web 侧经回环代理的 headers 通道把它带过去。
+        stream.put("userAgent", client.userAgent);
         stream.put("itag", format.optInt("itag", 0));
         stream.put("bitrate", bitrateOf(format));
         stream.put("mimeType", format.optString("mimeType", ""));
