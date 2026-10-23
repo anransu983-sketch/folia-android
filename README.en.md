@@ -147,7 +147,7 @@ Self-hosters can use the [Docker Compose full-stack deployment](deploy/docker/RE
 
 - **Windows / macOS / Linux**: Download the latest installers from the [Releases page](https://github.com/chthollyphile/folia-major/releases/latest).
 - **Arch Linux**: Install [folia-major-bin](https://aur.archlinux.org/packages/folia-major-bin) from the AUR.
-- **Flatpak**: A community-maintained third-party Flatpak is available on [Flatpark](https://flatpark.org/apps/top.izuna.foliamajor/).
+- **Flatpak**: A community-maintained third-party Flatpak is available on [Flatpark](https://flatpark.org/apps/com.suanran.folia/).
 - **Android**: Third-party community ports are listed under [Mobile](#mobile) below.
 
 > [!IMPORTANT]

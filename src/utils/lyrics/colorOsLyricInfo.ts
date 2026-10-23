@@ -231,8 +231,8 @@ export const buildColorOsLyricInfo = (
         lyricType: 0,
         lyric,
         noLyric: false,
-        provider: 'top.izuna.foliamajor',
-        source: 'folia-sonnet',
+        provider: 'com.suanran.folia',
+        source: 'folia-android',
         // 身份键：让 Bridge 能认出「这是同一首歌」，从而拒绝过期 payload。
         trackKey: `${songId}|${title}|${artist}|${durationSeconds}`,
         sessionGeneration: Math.max(1, Math.round(input.sessionGeneration ?? 1)),

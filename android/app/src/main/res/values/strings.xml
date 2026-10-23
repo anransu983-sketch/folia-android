@@ -2,8 +2,8 @@
 <resources>
     <string name="app_name">Folia</string>
     <string name="title_activity_main">Folia</string>
-    <string name="package_name">top.izuna.foliamajor</string>
-    <string name="custom_url_scheme">top.izuna.foliamajor</string>
+    <string name="package_name">com.suanran.folia</string>
+    <string name="custom_url_scheme">com.suanran.folia</string>
     <string name="lyrics_wallpaper_description">把正在播放的歌词做成动态壁纸</string>
 
     <!-- 启动时的 WebView 体检（见 WebViewUpgrade）。 -->

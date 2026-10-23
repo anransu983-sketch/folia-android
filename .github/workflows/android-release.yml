@@ -197,10 +197,10 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           mkdir -p dist-android
           cp android/app/build/outputs/apk/release/app-release.apk \
-             "dist-android/folia-sonnet-${VERSION}-release.apk"
+             "dist-android/folia-android-${VERSION}-release.apk"
           if [[ -f android/app/build/outputs/bundle/release/app-release.aab ]]; then
             cp android/app/build/outputs/bundle/release/app-release.aab \
-               "dist-android/folia-sonnet-${VERSION}-release.aab"
+               "dist-android/folia-android-${VERSION}-release.aab"
           fi
           ls -la dist-android
 

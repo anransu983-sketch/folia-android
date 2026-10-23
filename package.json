@@ -70,7 +70,7 @@
     "build:android:bundle": "npm run cap:sync:android && cd android && gradlew.bat bundleRelease"
   },
   "build": {
-    "appId": "top.izuna.foliamajor",
+    "appId": "com.suanran.folia",
     "productName": "Folia",
     "beforePack": "build/beforePack.cjs",
     "afterPack": "build/afterPack.cjs",

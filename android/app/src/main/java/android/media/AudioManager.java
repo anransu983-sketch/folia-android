@@ -1,7 +1,7 @@
 package android.media;
 
 /*
- * **编译期占位**：只为让 top.izuna.foliamajor.audio.FoliaAudioManager 能继承 AudioManager。
+ * **编译期占位**：只为让 com.suanran.folia.audio.FoliaAudioManager 能继承 AudioManager。
  *
  * android.jar 里那个 AudioManager 没有可见的构造方法 —— 带 Context 的那个被 @hide 掉了，
  * 剩下的无参构造又不是 public。实测直接继承的两种写法都编译不过：

@@ -12,10 +12,10 @@ import { nativePlaybackEngine } from '../services/playbackEngine/nativePlaybackE
 /**
  * 与 FoliaPlaybackService / MainActivity 里的常量一一对应，改一处必须两处都改。
  */
-const ACTION_UPDATE_METADATA = 'top.izuna.foliamajor.action.UPDATE_METADATA';
-const ACTION_UPDATE_STATE = 'top.izuna.foliamajor.action.UPDATE_STATE';
-const ACTION_STOP_FOREGROUND = 'top.izuna.foliamajor.action.STOP_FOREGROUND';
-const ACTION_WEB_COMMAND = 'top.izuna.foliamajor.action.WEB_COMMAND';
+const ACTION_UPDATE_METADATA = 'com.suanran.folia.action.UPDATE_METADATA';
+const ACTION_UPDATE_STATE = 'com.suanran.folia.action.UPDATE_STATE';
+const ACTION_STOP_FOREGROUND = 'com.suanran.folia.action.STOP_FOREGROUND';
+const ACTION_WEB_COMMAND = 'com.suanran.folia.action.WEB_COMMAND';
 const EXTRA_COMMAND = 'command';
 
 type PlaybackSnapshot = 'playing' | 'paused' | 'stopped';

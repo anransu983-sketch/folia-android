@@ -37,14 +37,14 @@ def versionCodeOf = { String name ->
 }
 
 android {
-    namespace = "top.izuna.foliamajor"
+    namespace = "com.suanran.folia"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
         }
     }
     defaultConfig {
-        applicationId "top.izuna.foliamajor"
+        applicationId "com.suanran.folia"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode versionCodeOf(packageJson.version.toString())
