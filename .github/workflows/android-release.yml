@@ -173,14 +173,15 @@ jobs:
       - name: Verify packaged web assets
         # 只比 chunk 名不够，内容也要断言：改的是壁纸页时 bootstrap 的哈希根本不会变，
         # 上一次就差点因此漏判（详见本机 build-apk.sh 里的同一段注释）。
+        # 本仓（folia-android）说明：动态壁纸的 Web 入口（wallpaper.html）尚未移植
+        # （见 vite.config.ts 中同一事项的注释），故此处暂不查壁纸页产物，
+        # 只断言主 Web 产物已进包；壁纸 Web 层移植后恢复壁纸断言。
         run: |
           set -euo pipefail
           APK="android/app/build/outputs/apk/release/app-release.apk"
           test -f "$APK" || { echo "没有产出 APK"; exit 1; }
-          unzip -l "$APK" | grep -E "assets/public/wallpaper\.html|assets/public/assets/bootstrap-.*\.js" \
+          unzip -l "$APK" | grep -E "assets/public/assets/bootstrap-.*\.js" \
             || { echo "Web 产物没进包 —— 大概率是 cap sync 那一步没跑"; exit 1; }
-          unzip -p "$APK" "assets/public/assets/wallpaper-*.js" | grep -c "wallpaper-stage" \
-            || { echo "壁纸页代码没进包"; exit 1; }
 
       - name: Name artifacts by version
         id: name
