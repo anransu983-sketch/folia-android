@@ -34,6 +34,11 @@ vi.mock('@/services/onlineMusic/ytm/ytmNative', () => ({
 
 vi.mock('youtubei.js/web', () => ({
     Innertube: { create: mocks.innertubeCreate },
+    // The runtime also takes the parser, the node types and the client constants off
+    // this module (the data operations use them); the sign-in check never calls them.
+    Parser: { parseResponse: vi.fn() },
+    YTNodes: {},
+    Constants: { CLIENTS: { YTMUSIC: { NAME: 'WEB_REMIX', VERSION: '1.20260101.01.00' } } },
 }));
 
 const signedInAnswer = {
