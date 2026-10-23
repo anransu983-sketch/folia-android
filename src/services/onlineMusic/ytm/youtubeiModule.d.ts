@@ -18,4 +18,9 @@ declare module 'youtubei.js/web' {
     export class Innertube {
         static create(options?: Record<string, unknown>): Promise<any>;
     }
+    // 解析原始答复与按类型取节点（歌单页、观看页要用），以及客户端常量（按语言读歌名要用）。
+    // 与 Innertube 一样只声明「在场」，形状由调用侧当不透明对象用。
+    export const Parser: any;
+    export const YTNodes: any;
+    export const Constants: any;
 }
