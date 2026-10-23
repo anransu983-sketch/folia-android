@@ -1,10 +1,23 @@
 import { getFromCache, removeFromCache, saveToCache } from './db';
+import { isCapacitorAndroid } from '../platform/runtime';
+import {
+    clearNativeVideoLayerFile,
+    pickNativeVideoLayerFile,
+    readNativeVideoLayerFile,
+} from '../platform/foliaNative';
 
 // src/services/videoLayerFile.ts
-// Local video file for the video layer behind the lyrics. Where the File System Access API exists
-// (Chromium, Electron) the pick is a FileSystemFileHandle kept in IndexedDB, so it survives a
-// restart without copying the video anywhere. Elsewhere the pick falls back to <input type=file>
-// and lasts for the session only.
+// Local video file for the video layer behind the lyrics. Two ways to keep a pick across restarts:
+//
+//  · File System Access API (Chromium, Electron): the pick is a FileSystemFileHandle kept in
+//    IndexedDB, read again on the next start. Nothing is copied anywhere.
+//  · Capacitor Android: no such API in the WebView, so the native side copies the video into the
+//    app's private directory (android/.../VideoLayerFile) and hands back a loopback URL. The bytes
+//    never cross the bridge, and the URL is re-asked on every start (its port is assigned per
+//    process, so it must never be stored).
+//
+// Elsewhere (a plain browser without the picker API) the pick falls back to <input type=file> and
+// lasts for the session only.
 
 const VIDEO_LAYER_FILE_HANDLE_KEY = 'video_layer_file_handle';
 
@@ -22,13 +35,24 @@ type OpenFilePickerWindow = Window & {
 };
 
 export type PickedVideoFile = {
-    file: File;
+    /** The picked bytes; null on Android, where the copy lives on the native side. */
+    file: File | null;
+    /** Android: the loopback URL of the copy in the app's private directory. Null elsewhere. */
+    url: string | null;
     /** Null when the pick came from the <input> fallback and cannot be restored later. */
     handle: FileSystemFileHandle | null;
+    name: string;
 };
 
+/**
+ * Whether a pick can outlive this session.
+ *
+ * Android counts as yes even without the File System Access API: the video is copied into the
+ * app's private directory instead (see the header of this file).
+ */
 export const canPersistVideoLayerFile = (): boolean => (
-    typeof window !== 'undefined' && typeof (window as OpenFilePickerWindow).showOpenFilePicker === 'function'
+    typeof window !== 'undefined'
+    && (isCapacitorAndroid() || typeof (window as OpenFilePickerWindow).showOpenFilePicker === 'function')
 );
 
 const pickWithInput = (): Promise<File | null> => new Promise((resolve) => {
@@ -40,12 +64,18 @@ const pickWithInput = (): Promise<File | null> => new Promise((resolve) => {
     input.click();
 });
 
-/** Opens the native picker for one video; null when the user cancels. Must run inside a user gesture. */
+/** Opens the picker for one video; null when the user cancels. Must run inside a user gesture. */
 export const pickVideoLayerFile = async (): Promise<PickedVideoFile | null> => {
+    if (isCapacitorAndroid()) {
+        const native = await pickNativeVideoLayerFile();
+        // 挑到了却用不了（太大 / 读不出来）：抛出去，界面按「无法打开该视频」提示。
+        if (native.status === 'rejected') throw new Error('The picked video could not be stored');
+        return native.status === 'applied' ? { file: null, url: native.url, handle: null, name: native.name } : null;
+    }
     const picker = (window as OpenFilePickerWindow).showOpenFilePicker;
     if (!picker) {
         const file = await pickWithInput();
-        return file ? { file, handle: null } : null;
+        return file ? { file, url: null, handle: null, name: file.name } : null;
     }
     try {
         const [handle] = await picker({
@@ -56,12 +86,22 @@ export const pickVideoLayerFile = async (): Promise<PickedVideoFile | null> => {
             }],
         });
         if (!handle) return null;
-        return { file: await handle.getFile(), handle };
+        const file = await handle.getFile();
+        return { file, url: null, handle, name: file.name };
     } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') return null;
         throw error;
     }
 };
+
+/**
+ * Android: the pick stored by an earlier session, as the loopback URL of the private copy.
+ * Null when there is none, or when this is not Android at all.
+ */
+export const readNativeVideoLayerPick = () => readNativeVideoLayerFile();
+
+/** Android: forget the private copy (the native side deletes the file). */
+export const clearNativeVideoLayerPick = () => clearNativeVideoLayerFile();
 
 export const saveVideoLayerFileHandle = (handle: FileSystemFileHandle) => saveToCache(VIDEO_LAYER_FILE_HANDLE_KEY, handle);
 

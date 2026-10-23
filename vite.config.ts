@@ -202,8 +202,22 @@ export default async function viteConfig(_config: ConfigEnv): Promise<UserConfig
     .digest('hex')
     .slice(0, 12)}`;
 
+  const isCapacitorBuild = process.env.FOLIA_BUILD_TARGET === 'capacitor';
+  // 本地登录：Android 包把三家音源的 API 基址写成哨兵值 `extension`，请求交给内置在
+  // App 里的接口代码（src/nativeBridge/api/*）+ 原生 OkHttp，不再依赖任何外部服务器。
+  // 写在配置里而不是 .env 里，是因为 .env.local 是给网页/桌面用的服务器地址，
+  // 而 process.env 在 Vite 的 env 解析里最后生效，能稳定覆盖它。
+  // VITE_FOLIA_API_BASE 保持不变：AI 主题与歌词代理确实还需要那个服务端。
+  if (isCapacitorBuild) {
+    process.env.VITE_NETEASE_API_BASE = 'extension';
+    process.env.VITE_QQ_API_BASE = 'extension';
+    process.env.VITE_KUGOU_API_BASE = 'extension';
+    // 波点同样没有可配的后端：桌面端由 Electron 内置，Android 由 src/nativeBridge/api/bodian.js 顶上。
+    process.env.VITE_BODIAN_API_BASE = 'extension';
+  }
+
   return {
-    base: process.env.ELECTRON === 'true' ? './' : '/',
+    base: process.env.ELECTRON === 'true' || isCapacitorBuild ? './' : '/',
     worker: {
       format: 'es'
     },
@@ -219,6 +233,9 @@ export default async function viteConfig(_config: ConfigEnv): Promise<UserConfig
           main: 'index.html',
           stageClient: 'stage-client.html',
           modExport: 'mod-export.html',
+          // 动态壁纸的 Web 入口（wallpaper.html → src/entries/wallpaperSurface.ts）尚未移植：
+          // 它依赖上游旧版 visualizer 设置 store 的整组壁纸字段，与当前 main 的 store 结构对不上，
+          // 留待第二阶段按字段移植后再加回这个 input。
         },
         output: {
           // Rolldown ignores manualChunks once codeSplitting is set, so every manual split lives here.
@@ -270,7 +287,7 @@ export default async function viteConfig(_config: ConfigEnv): Promise<UserConfig
       traditionalLocalePlugin(),
       icuFoliaDataPlugin(),
       react(),
-      VitePWA({
+      ...(isCapacitorBuild ? [] : [VitePWA({
         registerType: 'autoUpdate',
         includeAssets: ['icon.svg'],
         devOptions: {
@@ -281,7 +298,8 @@ export default async function viteConfig(_config: ConfigEnv): Promise<UserConfig
           importScripts: [localCoverWorkerImport],
           // Docker serves this file dynamically; it must never be pinned in the PWA precache.
           // The cover route is stored with the worker script itself, so precaching it is redundant.
-          globIgnores: ['**/runtime-config.js', '**/assets/folium-icons/**', '**/folia-cover-sw.js'],
+          // folia-cover-sw-standalone.js 只有 Capacitor 打包会注册，Web 端别把它算进预缓存。
+          globIgnores: ['**/runtime-config.js', '**/assets/folium-icons/**', '**/folia-cover-sw.js', '**/folia-cover-sw-standalone.js'],
           runtimeCaching: [{
             // Per-icon chunks load on demand. Their names are content-hashed, so an icon cached on
             // first use can be served as-is when the app later starts offline.
@@ -312,7 +330,7 @@ export default async function viteConfig(_config: ConfigEnv): Promise<UserConfig
             }
           ]
         }
-      })
+      })]),
     ],
     define: {
       '__COMMIT_HASH__': JSON.stringify(commitHash + commitSuffix),

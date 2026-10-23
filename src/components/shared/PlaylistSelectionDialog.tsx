@@ -19,6 +19,13 @@ interface PlaylistSelectionDialogProps {
     onSelect: (playlistId: string | number) => Promise<void> | void;
     onCreate?: () => void;
     createLabel?: string;
+    /**
+     * 列表下面多一个「不进歌单，只要曲库里有」这类动作。
+     *
+     * 有它之后关掉这个弹窗（叉 / 背景 / 返回键）才等于真正的取消 —— 以前关闭就是
+     * 「只进曲库」，用户点取消结果歌曲照样进了库。
+     */
+    secondaryAction?: { label: string; onSelect: () => Promise<void> | void };
 }
 
 const PlaylistSelectionDialog: React.FC<PlaylistSelectionDialogProps> = ({
@@ -31,13 +38,16 @@ const PlaylistSelectionDialog: React.FC<PlaylistSelectionDialogProps> = ({
     onSelect,
     onCreate,
     createLabel,
+    secondaryAction,
 }) => {
     const { t } = useTranslation();
     const [submittingId, setSubmittingId] = React.useState<string | number | null>(null);
+    const [secondaryBusy, setSecondaryBusy] = React.useState(false);
 
     React.useEffect(() => {
         if (!isOpen) {
             setSubmittingId(null);
+            setSecondaryBusy(false);
         }
     }, [isOpen]);
 
@@ -95,6 +105,23 @@ const PlaylistSelectionDialog: React.FC<PlaylistSelectionDialogProps> = ({
                 <div className="py-8 text-center text-[13px] text-[color:var(--st-t3)]">
                     {t('localMusic.noPlaylistsFound') || 'No playlists yet'}
                 </div>
+            )}
+            {secondaryAction && (
+                <button
+                    type="button"
+                    onClick={async () => {
+                        try {
+                            setSecondaryBusy(true);
+                            await secondaryAction.onSelect();
+                        } finally {
+                            setSecondaryBusy(false);
+                        }
+                    }}
+                    disabled={submittingId !== null || secondaryBusy}
+                    className="st-t-fast mt-3 flex h-10 w-full shrink-0 items-center justify-center rounded-xl bg-[var(--st-fill)] text-[13px] transition-colors enabled:hover:bg-[var(--st-fill2)] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                    {secondaryAction.label}
+                </button>
             )}
         </ThemedDialog>
     );

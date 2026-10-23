@@ -6,7 +6,10 @@ import { usePlayerChromeSettingsStore } from '../../../../stores/usePlayerChrome
 import { useStageSettingsStore } from '../../../../stores/useStageSettingsStore';
 import { Button, CopyValue, Group, Reveal, Row, Status, Toggle, Value, type SettingsOptionDef } from '../kit';
 import NavidromeRows from './integration/NavidromeRows';
-import { O, SERVICES, STREAMING } from './integration/options';
+import { O, SERVICES, STREAMING, SYSTEM_LYRICS } from './integration/options';
+import AndroidLyriconSetting from '../AndroidLyriconSetting';
+import AndroidColorOsLyricsSetting from '../AndroidColorOsLyricsSetting';
+import { isCapacitorAndroid } from '../../../../platform/runtime';
 import { DesktopStageRows, WebStageRows } from './integration/StageModeRows';
 import SyncServerRows from './integration/SyncServerRows';
 import { useSettingsPage } from './settingsPageContext';
@@ -125,6 +128,20 @@ const IntegrationPage: React.FC = () => {
                 )}
                 {isElectron ? <DesktopStageRows /> : <WebStageRows />}
             </Group>
+
+            {/*
+             * 系统歌词（安卓）：状态栏歌词（Lyricon）与 ColorOS 原生锁屏歌词。
+             *
+             * 上游把设置子页重写成 pages/* 时，原来挂着这两项的 IntegrationSettingsSubview
+             * 被删了 —— 运行时链路（App 里的 useLyriconFeed / useColorOsLyricFeed、原生插件
+             * 注册）全都还在，只是设置里找不到入口。两个组件自己判运行时：非安卓返回 null。
+             */}
+            {isCapacitorAndroid() && (
+                <Group def={SYSTEM_LYRICS}>
+                    <AndroidLyriconSetting />
+                    <AndroidColorOsLyricsSetting />
+                </Group>
+            )}
         </>
     );
 };

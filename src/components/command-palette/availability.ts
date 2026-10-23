@@ -1,12 +1,14 @@
 import type { CommandPaletteContext, CommandScope } from './types';
+import { isCapacitorAndroid } from '../../platform/runtime';
 
 // src/components/command-palette/availability.ts
 // Declarative platform and scope gating for command palette entries, replacing the id switchboard
 // that used to live inside getAvailableCommandPaletteCommands.
 
 // 'electron' matches any desktop build; the OS names imply desktop; 'web' means a browser
-// without the Electron bridge.
-export type CommandPlatform = 'web' | 'electron' | 'win' | 'mac' | 'linux';
+// without the Electron bridge; 'capacitor-android' is the native Android wrapper, where the
+// browser-only affordances (local library import, file pickers) do not exist.
+export type CommandPlatform = 'web' | 'electron' | 'win' | 'mac' | 'linux' | 'capacitor-android';
 
 const OS_BY_NODE_PLATFORM: Record<string, Extract<CommandPlatform, 'win' | 'mac' | 'linux'>> = {
     win32: 'win',
@@ -16,6 +18,7 @@ const OS_BY_NODE_PLATFORM: Record<string, Extract<CommandPlatform, 'win' | 'mac'
 
 type RuntimePlatform = {
     isElectron: boolean;
+    isCapacitorAndroid: boolean;
     os: CommandPlatform | null;
 };
 
@@ -28,10 +31,10 @@ const detectRuntimePlatform = (): RuntimePlatform | null => {
 
     const electron = (window as any).electron;
     if (!electron) {
-        return { isElectron: false, os: 'web' };
+        return { isElectron: false, isCapacitorAndroid: isCapacitorAndroid(), os: 'web' };
     }
 
-    return { isElectron: true, os: OS_BY_NODE_PLATFORM[String(electron.platform)] ?? null };
+    return { isElectron: true, isCapacitorAndroid: false, os: OS_BY_NODE_PLATFORM[String(electron.platform)] ?? null };
 };
 
 export const matchesCommandPlatform = (platform?: CommandPlatform[]): boolean => {
@@ -48,10 +51,15 @@ export const matchesCommandPlatform = (platform?: CommandPlatform[]): boolean =>
 
     return platform.some(candidate => {
         if (candidate === 'web') {
+            // The Capacitor shell serves the same web bundle, so 'web' claims it too; commands
+            // that genuinely cannot run there opt out with an explicit 'capacitor-android' entry.
             return !runtime.isElectron;
         }
         if (candidate === 'electron') {
             return runtime.isElectron;
+        }
+        if (candidate === 'capacitor-android') {
+            return runtime.isCapacitorAndroid;
         }
         return runtime.isElectron && runtime.os === candidate;
     });

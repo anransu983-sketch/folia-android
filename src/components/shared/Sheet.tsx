@@ -8,6 +8,7 @@ import { SettingsKitThemeContext, settingsTokens, useSettingsKitTheme } from '..
 import { KIT_EASE, KIT_MOTION, kitMotionTokens, kitTransition, useKitReducedMotion } from '../modal/settings/kit/motion';
 import { Tooltip } from '../modal/settings/kit';
 import { escapeCloses, tabTarget } from './sheetKeys';
+import { isNativeBackKey } from '../../utils/keyboardTargets';
 
 // src/components/shared/Sheet.tsx
 // The frame of every dialog: a title and the close button at the top, the content in the middle,
@@ -23,6 +24,10 @@ import { escapeCloses, tabTarget } from './sheetKeys';
 //
 // While it is open the keyboard belongs to it: focus goes in, Tab stays in, and Escape closes the
 // topmost sheet and nothing under it. Closing gives focus back to what opened it.
+//
+// Escape reaches it by two roads that must not be confused: a real key press is caught on
+// `document` (so parts inside the sheet see it first), while Android's back button arrives as an
+// Escape dispatched straight on `window` and needs a listener there. See the two listeners.
 
 /**
  * s: a question or a short notice. m: a dialog with content of its own. l: a work window.
@@ -89,6 +94,33 @@ const overlayTokens = (isDaylight: boolean, theme: Theme | undefined): CSSProper
     '--sheet-ink': `var(--text-primary, ${theme?.primaryColor ?? (isDaylight ? '#18181b' : '#f4f4f5')})`,
 } as CSSProperties);
 
+/**
+ * 跑在 Capacitor 安卓 App 里吗（只认安卓：这一层只在那一端的合成器上值得加，见下）。
+ */
+const isAndroidApp = (): boolean => (
+    typeof window !== 'undefined'
+    && (window as unknown as { Capacitor?: { getPlatform?: () => string } }).Capacitor?.getPlatform?.() === 'android'
+);
+
+/**
+ * 安卓上，遮罩这一层要从画出来第一帧就自己占一个合成层（恒等 translate3d，几何与定位都不变）。
+ *
+ * 为什么：原来这一层是不被提升的 —— 被提升的是它里面的遮罩（opacity 动画）和面板（framer-motion
+ * 每帧改内联 transform），而且**面板的图层在进场动画收尾时会被撤掉**（framer 把 transform 抹成 none）。
+ * 安卓 WebView 上这一撤要把内容重栅格化回父层，弱 GPU 上会漏出一帧旧的合成结果：身后那层背景
+ * （首页墙后的 player-visual-surface，挂着 24px 的滤镜模糊、本身就是 render surface）正好在弹层的位置上
+ * 闪一下。桌面 GPU 快，看不到这一帧。容器自己先有图层，遮罩和面板的图层生灭就都落在它上面。
+ *
+ * 为什么只在安卓加：被提升的图层拿不到 LCD 次像素抗锯齿（图层底是透明的，Chromium 判它
+ * is_suitable_for_lcd = false）—— 弹层里的字会变成灰度抗锯齿，桌面上看得出来，截图基线也会跟着变。
+ *
+ * 唯一的副作用：带 transform 的元素是自己 fixed 后代的包含块 —— 而这个容器本来就是整个视口，
+ * 里面的 fixed 内容位置一个像素都不会动。
+ */
+const COMPOSITED: CSSProperties = Object.freeze({ transform: 'translate3d(0, 0, 0)' });
+const NO_LAYER: CSSProperties = Object.freeze({});
+const overlayLayer = (): CSSProperties => (isAndroidApp() ? COMPOSITED : NO_LAYER);
+
 type SheetProps = {
     isOpen: boolean;
     onClose: () => void;
@@ -139,6 +171,11 @@ type SheetProps = {
     from?: { x: number; y: number } | null;
     /** The lesson marker of the sheet, for Ponder: on the whole panel, its column and title row too. */
     ponderId?: string;
+    /**
+     * 这个弹层是哪一种。纯标记（落进 data-folia-themed-dialog-kind）：手机适配的 CSS
+     * 靠它给个别的弹层单独排版（比如播放列表选择要压高度）。ThemedDialog 的 panelKind 传到这里。
+     */
+    kind?: string;
 };
 
 type SheetFrameProps = Omit<SheetProps, 'isOpen'>;
@@ -178,6 +215,7 @@ const SheetFrame: React.FC<SheetFrameProps> = ({
     leave,
     from,
     ponderId,
+    kind,
 }) => {
     const { t } = useTranslation();
     const kitTheme = useSettingsKitTheme();
@@ -251,8 +289,41 @@ const SheetFrame: React.FC<SheetFrameProps> = ({
         };
 
         document.addEventListener('keydown', handleKeyDown);
+
+        // Android's back button and its edge swipe: the native side turns one into an Escape
+        // **dispatched on `window`** (useNativeBackButton). Its target is the window itself, so
+        // `document` is not in the propagation path and the listener above never sees it — every
+        // sheet here (the sign-in window among them) looked dead to the back gesture, and with
+        // nothing calling preventDefault the whole app went to the background instead.
+        //
+        // Only the marked key is taken here: a real Escape still belongs to the document listener
+        // above, which stops it before it could reach this one.
+        const handleNativeBack = (event: KeyboardEvent) => {
+            if (event.key !== 'Escape' || !isNativeBackKey(event)) {
+                return;
+            }
+            if (openSheets[openSheets.length - 1] !== token) {
+                return;
+            }
+            const closes = escapeCloses({
+                taken: event.defaultPrevented,
+                held: event.repeat,
+                composing: event.isComposing,
+                popupOpen: panel.querySelector('[aria-haspopup][aria-expanded="true"]') !== null,
+                closeDisabled: closeDisabledRef.current,
+            });
+            if (closes) {
+                // Tells useNativeBackButton this one was handled: without it the app goes to the
+                // background on the very key that just closed a window.
+                event.preventDefault();
+                requestCloseRef.current();
+            }
+        };
+        window.addEventListener('keydown', handleNativeBack);
+
         return () => {
             document.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keydown', handleNativeBack);
             openSheets.splice(openSheets.indexOf(token), 1);
             // Back to what opened the sheet, unless focus has since been put somewhere else.
             const active = document.activeElement;
@@ -275,11 +346,14 @@ const SheetFrame: React.FC<SheetFrameProps> = ({
             data-folia-keyboard-window={isPresent ? 'true' : undefined}
             // What hasOpenSheet (utils/keyboardTargets) looks for.
             data-folia-sheet={isPresent ? 'true' : undefined}
+            // 手机适配的 CSS 与「已经有个弹层开着吗」的查询都认这两个标记
+            // （styles/androidPhoneFit.css、hooks/useStartupUpdatePrompt.ts）。
+            data-folia-themed-overlay={isPresent ? 'true' : undefined}
             inert={!isPresent}
             className={`fixed inset-0 z-[200] flex justify-center p-4 ${restHeight ? 'items-start' : 'items-center'}`}
             style={restHeight
-                ? { ...overlayTokens(isDaylight, theme), paddingTop: `max(16px, calc(50vh - ${restHeight / 2}px))` }
-                : overlayTokens(isDaylight, theme)}
+                ? { ...overlayLayer(), ...overlayTokens(isDaylight, theme), paddingTop: `max(16px, calc(50vh - ${restHeight / 2}px))` }
+                : { ...overlayLayer(), ...overlayTokens(isDaylight, theme) }}
             onMouseDown={(event) => {
                 isMouseDownOnOverlayRef.current = event.target === event.currentTarget;
             }}
@@ -301,12 +375,21 @@ const SheetFrame: React.FC<SheetFrameProps> = ({
                 aria-modal="true"
                 aria-labelledby={titleId}
                 data-ponder={ponderId}
+                data-folia-themed-dialog="true"
+                data-folia-themed-dialog-kind={kind}
                 tabIndex={-1}
                 initial={cameFrom}
                 animate={{ opacity: 1, x: 0, y: 0, scale: 1, transition: kitTransition('unfold', reduced) }}
                 exit={exit}
-                className={`st-window relative flex max-h-[min(720px,100%)] max-w-full flex-col overflow-hidden rounded-2xl bg-[var(--st-win)] text-[color:var(--st-t1)] shadow-[var(--sheet-shadow),0_0_0_1px_var(--st-line2)] ${SIZE_CLASS[size]}${underlay ? ' isolate' : ''}`}
+                className={`st-window relative isolate flex max-h-[min(720px,100%)] max-w-full flex-col overflow-hidden rounded-2xl bg-[var(--st-win)] text-[color:var(--st-t1)] shadow-[var(--sheet-shadow),0_0_0_1px_var(--st-line2)] ${SIZE_CLASS[size]}`}
                 // The panel holds focus without a mark of its own.
+                //
+                // isolate 一直挂着，不再等 underlay 出现：underlay 要等选中哪个平台定下来（窗口打开之后
+                // 的一次 effect），原来它一出现面板就凭空多出一个层叠上下文，正好落在进场动画中间。
+                // 没有 underlay 的弹层本来也没有负 z 的子层，这一句对它们是空操作。
+                //
+                // 面板自己不写 will-change：它是固定的包含块会连带影响里面 fixed 的内容，而容器
+                // （见 COMPOSITED）已经有图层了，面板那几帧的图层生灭落在它上面就够了。
                 style={{ outline: 'none', ...panelTokens(isDaylight, theme, reduced) }}
             >
                 <SettingsKitThemeContext.Provider value={childTheme}>

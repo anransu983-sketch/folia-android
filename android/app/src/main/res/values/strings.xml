@@ -1,0 +1,16 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Folia</string>
+    <string name="title_activity_main">Folia</string>
+    <string name="package_name">top.izuna.foliamajor</string>
+    <string name="custom_url_scheme">top.izuna.foliamajor</string>
+    <string name="lyrics_wallpaper_description">把正在播放的歌词做成动态壁纸</string>
+
+    <!-- 启动时的 WebView 体检（见 WebViewUpgrade）。 -->
+    <string name="webview_upgrade_title">系统 WebView 版本过低</string>
+    <string name="webview_upgrade_message">Folia 需要 Chromium %1$d 以上的系统 WebView，当前是 %2$s。\n\n请更新「Android System WebView」后重新打开应用，否则界面可能白屏或无法播放。</string>
+    <string name="webview_upgrade_action_update">去更新</string>
+    <string name="webview_upgrade_action_continue">仍要继续</string>
+    <string name="webview_upgrade_action_exit">退出</string>
+    <string name="webview_upgrade_no_store">没找到可以更新 WebView 的应用商店，请手动更新 Android System WebView</string>
+</resources>

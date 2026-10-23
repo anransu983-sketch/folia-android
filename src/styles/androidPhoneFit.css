@@ -1,0 +1,1046 @@
+/*
+ * Android phone-fit layout.
+ *
+ * This file is intentionally additive: every rule is gated by an attribute on <html>, so the
+ * upstream layout is byte-for-byte unchanged when the setting is off. Component changes elsewhere
+ * only add stable data attributes; selectors do not depend on Tailwind class names.
+ */
+
+html[data-folia-phone-fit='true'] [data-folia-app-shell] {
+  width: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+}
+
+/* Keep every tab strip inside the viewport and let it scroll instead of pushing the page wider. */
+html[data-folia-phone-fit='true'] [data-folia-app-shell] [role='tablist'] {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-app-shell] [role='tablist']::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-app-shell] [role='tab'] {
+  flex-shrink: 0;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-grid-tabs] {
+  max-width: calc(100vw - var(--folia-safe-area-left, 0px) - var(--folia-safe-area-right, 0px) - 16px);
+  min-width: 0;
+  height: auto;
+  max-height: 40px;
+  padding: 3px;
+  border-radius: 18px;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-grid-tabs] > button {
+  flex: 0 0 auto;
+  padding-inline: 10px;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-grid-tabs] [data-folia-grid-tab-list] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Settings: use the full safe viewport and always use the compact chip navigation. */
+html[data-folia-phone-fit='true'] [data-folia-settings-overlay] {
+  align-items: stretch;
+  padding:
+    max(6px, var(--folia-safe-area-top, 0px))
+    max(6px, var(--folia-safe-area-right, 0px))
+    max(6px, var(--folia-safe-area-bottom, 0px))
+    max(6px, var(--folia-safe-area-left, 0px));
+}
+
+html[data-folia-phone-fit='true'] [data-folia-settings-panel] {
+  width: 100% !important;
+  max-width: 100% !important;
+  height: calc(100dvh - var(--folia-safe-area-top, 0px) - var(--folia-safe-area-bottom, 0px) - 12px) !important;
+  max-height: calc(100dvh - var(--folia-safe-area-top, 0px) - var(--folia-safe-area-bottom, 0px) - 12px) !important;
+  min-height: 0;
+  padding: 14px !important;
+  border-radius: 20px !important;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-settings-tabs] {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-settings-content] {
+  min-height: 0;
+  padding-left: 2px !important;
+  padding-right: 6px !important;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Generic themed dialogs (audio effects, lyric-file dialogs, prompts). */
+html[data-folia-phone-fit='true'] [data-folia-themed-overlay] {
+  align-items: stretch;
+  padding:
+    max(6px, var(--folia-safe-area-top, 0px))
+    max(6px, var(--folia-safe-area-right, 0px))
+    max(6px, var(--folia-safe-area-bottom, 0px))
+    max(6px, var(--folia-safe-area-left, 0px));
+}
+
+html[data-folia-phone-fit='true'] [data-folia-themed-dialog] {
+  width: 100% !important;
+  max-width: 100% !important;
+  max-height: calc(100dvh - var(--folia-safe-area-top, 0px) - var(--folia-safe-area-bottom, 0px) - 12px) !important;
+  overflow-y: auto;
+  padding: 16px !important;
+  border-radius: 20px !important;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-themed-dialog] h2 {
+  font-size: 1.125rem;
+  line-height: 1.35;
+}
+
+/* Status prompts ("song unavailable", playback errors) are desktop-sized pills. Cap them to the
+   phone viewport and shrink their controls so they do not cover the page or run off-screen. */
+html[data-folia-phone-fit='true'] [data-folia-status-toast='true'] {
+  max-width: min(calc(100vw - 32px), 24rem);
+  padding: 8px 12px !important;
+  border-radius: 18px !important;
+  gap: 8px !important;
+  font-size: 12px !important;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-status-toast='true'] > span {
+  min-width: 0;
+  line-height: 1.3;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-status-toast='true'] button {
+  padding: 4px 8px !important;
+  font-size: 11px !important;
+  flex-shrink: 0;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-status-toast='true'] svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-status-toast='true'] {
+  max-width: min(calc(100vw - 32px), 22rem);
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-status-toast='true'] {
+  max-width: min(72vw, 28rem);
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-themed-dialog] {
+  padding: 12px !important;
+}
+
+/* Landscape phones are short: shrink the top header and bottom player capsule a little without
+   changing their layout or the upstream components. */
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-home-header] > div {
+  gap-y: 0 !important;
+  padding: 6px 12px !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-home-header] h1 {
+  font-size: 1rem;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-home-header] input {
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+  font-size: 12px !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-grid-tabs] {
+  max-height: 32px;
+  padding: 2px;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-grid-tabs] button {
+  height: 24px;
+  padding-inline: 8px;
+  font-size: 11px;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-ponder='player-bar'] {
+  /* 展开态是两行（标题/按钮 + 进度条）。46px 装不下，进度条会被挤到胶囊外面，
+     所以放开高度并收紧行距，让两行都留在胶囊里。 */
+  max-height: 60px;
+  padding: 4px 10px !important;
+}
+
+/* The landscape phone viewport is wide and short; the desktop-sized expanded capsule reads as
+   an oversized bar. Keep it comfortably centered and leave the collapsed pill untouched. */
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-player-bar-expanded='true'] {
+  width: min(78vw, 26rem) !important;
+  max-width: min(78vw, 26rem) !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-player-bar-expanded='true'] > div {
+  column-gap: 6px !important;
+  row-gap: 0 !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-player-bar-play='true'] {
+  width: 34px !important;
+  height: 34px !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-player-bar-play='true'] svg {
+  width: 15px;
+  height: 15px;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-player-bar-slot='true'] {
+  padding: 3px !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-player-bar-slot='true'] svg {
+  width: 15px !important;
+  height: 15px !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-player-bar-title='true'] {
+  padding-inline: 0 !important;
+  font-size: 12px !important;
+  line-height: 1.15 !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-player-bar-progress='true'] {
+  padding-inline: 0 !important;
+  overflow: hidden;
+}
+
+/* The title navigator reserves 56px on each side for its hover arrows. In the phone bar that
+   leaves no room for the title itself on touch layouts, so shrink the zones and keep the text
+   layer at a fixed one-line height.
+
+   箭头固定钉在两侧，歌名限制在左右各 40px 的中间带内居中。两侧内缩完全对称，
+   所以短标题与箭头之间始终有余量，长标题也只会在这个中间带里截断，不会压到箭头。
+   这个方案不测量文字宽度，也不受切歌动画或字体加载时序影响。 */
+html[data-folia-phone-fit='true'] [data-folia-track-title='true'] {
+  direction: ltr;
+  width: 100%;
+  min-height: 16px;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* 触屏模式：箭头强制固定在歌名两侧，成为同一行的 flex 子项。
+   左箭头紧跟在播放按钮右侧，右箭头在播放模式按钮左侧；歌名占中间剩余宽度，
+   过长时由内层 span 截断成省略号。两侧留给文字的空间完全对称，不存在偏移。 */
+html[data-folia-phone-fit='true'] [data-folia-track-title='true'] {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-track-title-layer='true'] {
+  position: static;
+  order: 1;
+  flex: 1 1 0;
+  width: auto !important;
+  min-width: 0;
+  height: 100% !important;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-track-title-zone='prev'] {
+  position: static;
+  order: -1;
+  left: auto !important;
+  right: auto !important;
+  flex: 0 0 28px;
+  justify-content: flex-start !important;
+  z-index: 2;
+  width: 28px !important;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-track-title-zone='next'] {
+  position: static;
+  order: 2;
+  left: auto !important;
+  right: auto !important;
+  flex: 0 0 28px;
+  justify-content: flex-end !important;
+  z-index: 2;
+  width: 28px !important;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-track-title-text='true'] {
+  left: 0 !important;
+  right: 0 !important;
+  z-index: 1;
+  min-height: 16px;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-track-title-arrow='true'] {
+  width: 20px !important;
+  height: 20px !important;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-track-title-arrow='true'] svg {
+  width: 13px;
+  height: 13px;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-track-title-text='true'] span {
+  display: inline-block;
+  width: auto;
+  max-width: 100%;
+  font-size: 12px !important;
+  line-height: 1.1 !important;
+}
+
+/* Portrait phone fit: the default sub-sm layout stacks title, transport and progress into three
+   rows (~130px tall), which overlaps the upcoming-track panel. Collapse it to the same two-row
+   grid used by desktop while keeping phone-sized controls. */
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-ponder='player-bar'] {
+  max-height: 66px;
+  padding: 6px 10px !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-player-bar-expanded='true'] {
+  width: min(calc(100vw - 40px), 22rem) !important;
+  max-width: min(calc(100vw - 40px), 22rem) !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-player-bar-expanded='true'] > div {
+  grid-template-columns: auto minmax(0, 1fr) auto !important;
+  grid-template-rows: auto auto !important;
+  column-gap: 8px !important;
+  row-gap: 2px !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-player-bar-title='true'] {
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+  display: flex;
+  align-items: center;
+  padding-inline: 0 !important;
+  min-height: 32px;
+  min-width: 0;
+  font-size: 12px !important;
+  line-height: 1.15 !important;
+  text-align: center;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-player-bar-play='true'] {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+  width: 32px !important;
+  height: 32px !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-player-bar-play='true'] svg {
+  width: 14px;
+  height: 14px;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-ponder-slots] {
+  display: flex !important;
+  grid-column: 3 !important;
+  grid-row: 1 !important;
+  align-items: center;
+  justify-content: flex-end;
+  justify-self: end;
+  gap: 2px;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-player-bar-slot='true'] {
+  padding: 3px !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-player-bar-slot='true'] svg {
+  width: 15px !important;
+  height: 15px !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-player-bar-progress='true'] {
+  grid-column: 1 / -1 !important;
+  grid-row: 2 !important;
+  padding-inline: 0 !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-track-title='true'] {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 32px;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-track-title-text='true'] span {
+  font-size: 12px !important;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-track-title-static='true'] {
+  display: block !important;
+  width: 100%;
+  min-width: 0;
+  padding-inline: 4px;
+  box-sizing: border-box;
+  font-size: 12px !important;
+  line-height: 32px !important;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-track-title='true'] [data-folia-track-title-text='true'] {
+  display: none !important;
+}
+
+/* Pointer devices keep the upstream hover preview; touch devices keep the static title. */
+@media (hover: hover) and (pointer: fine) {
+  html[data-folia-phone-fit='true'] [data-folia-track-title='true']:hover [data-folia-track-title-static='true'] {
+    display: none !important;
+  }
+
+  html[data-folia-phone-fit='true'] [data-folia-track-title='true']:hover [data-folia-track-title-text='true'] {
+    display: flex !important;
+  }
+}
+
+/* The right-side panel/gear toggle shares the bar's baseline; on a portrait phone it lands on top
+   of the enlarged player capsule. Lift it to the same height as the command-palette button. */
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-testid='panel-toggle'] {
+  bottom: 120px !important;
+  right: var(--folia-safe-area-right, 0px) !important;
+  width: 44px !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-testid='panel-toggle'] > div,
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-testid='panel-toggle'] button {
+  width: 44px !important;
+  height: 44px !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-testid='panel-toggle'] svg {
+  width: 18px !important;
+  height: 18px !important;
+}
+
+/* Portrait phones: park the next-up card under the top-left back control instead of over the bar. */
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-now-playing-toast='true'] {
+  top: calc(var(--folia-safe-area-top, 0px) + 72px) !important;
+  bottom: auto !important;
+  left: calc(var(--folia-safe-area-left, 0px) + 12px) !important;
+}
+
+/* Landscape phones: the next-up card also parks under the top-left back control instead of
+   sitting on the control bar it was overlapping. */
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-now-playing-toast='true'] {
+  top: calc(var(--folia-safe-area-top, 0px) + 72px) !important;
+  bottom: auto !important;
+  left: calc(var(--folia-safe-area-left, 0px) + 12px) !important;
+}
+
+/* Landscape phones are short: the desktop-sized grid title chip reads as oversized and the
+   honeycomb canvas runs under the bottom control bar. Shrink the chip and reserve the bar's
+   strip so the card wall centres above it. */
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-grid-canvas='true'] {
+  margin-bottom: 96px;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-ponder-page-scope='grid-view-page'] .group\/grid-title {
+  padding: 4px 12px !important;
+  border-radius: 12px !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-ponder-page-scope='grid-view-page'] .group\/grid-title h2 {
+  font-size: 0.95rem !important;
+  line-height: 1.2 !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-ponder-page-scope='grid-view-page'] .group\/grid-title p {
+  font-size: 11px !important;
+  line-height: 1.2 !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-ponder='player-bar'] button {
+  min-width: 28px;
+  min-height: 28px;
+}
+
+/* Keep the landscape capsule exactly on the viewport's horizontal centre. Sizes are untouched;
+   this only pins the translate that the desktop layout already relies on, so a stray transform
+   on an ancestor cannot push it off-centre. */
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-player-bar-expanded] {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-equalizer-bands] {
+  padding: 10px;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-equalizer-bands] .min-w-\[520px\] {
+  min-width: 480px;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-audio-effects] {
+  padding: 12px;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-audio-effects] .grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-themed-dialog-kind='playlist-selection'] {
+  width: min(64vw, 26rem) !important;
+  max-width: min(64vw, 26rem) !important;
+  max-height: calc(100dvh - var(--folia-safe-area-top, 0px) - var(--folia-safe-area-bottom, 0px) - 16px) !important;
+  padding: 10px !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-themed-dialog-kind='playlist-selection'] h2 {
+  font-size: 0.95rem !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-playlist-list='true'] {
+  max-height: min(36dvh, 190px);
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-playlist-option='true'] {
+  padding: 6px 10px !important;
+  gap: 8px !important;
+  border-radius: 10px !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-playlist-option='true'] div div:first-child {
+  font-size: 12px !important;
+}
+
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [data-folia-playlist-selection='true'] > button {
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+  border-radius: 10px !important;
+  font-size: 12px !important;
+}
+
+@media (max-width: 600px) {
+  html[data-folia-phone-fit='true'] [data-folia-audio-effects] .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 手机上的 UI 尺度缩一档（等价于把这台机器的 dpi 调小：每一格元素变小，同一块屏反而放得下更多）。
+ *
+ * 两档：
+ *   ① 竖屏 → `--folia-ui-scale-normal`（默认 86%，用户可调）。
+ *      竖屏也生效 —— 桌面那套按宽屏排的布局在这块屏上普遍偏大，一行放不下几个字、一屏摆不了几个控件。
+ *   ② 手机横屏（compact）→ `--folia-ui-scale-compact`（在 ① 上再收 10%，默认 76%）。
+ *      横过来之后元素互相遮挡得厉害。两条同时命中时以 ② 为准（同样特异性，靠书写顺序，
+ *      所以 ② 必须写在后面）。
+ *
+ * 数值**不写在这里**：机器之间差别太大（6 寸到 7 寸、系统字号调到最大的都有），写死一个数
+ * 必然两头不讨好 —— 早先写死 92% / 86%，实测下来等于没缩，用户原话「缩出来的只有一点点，
+ * 没什么区别」。现在改成引导 / 设置里的滑条（useDeviceProfileStore 的 uiScale，落在
+ * `folia_ui_scale`），由 androidPhoneLayout.applyDeviceProfile 写进这两个变量。
+ * 这里只负责**要不要**缩（按属性判定），不负责缩多少。
+ *
+ * ① 挂在 `data-folia-device-resolved` 而不是 `data-folia-device` 上：后者记的是用户的选择，
+ * 没选过就是 `auto`，那批人（机器本来就是手机、只是没答过引导）竖屏就漏掉了 —— 而他们恰恰是
+ * 最需要缩一档的人。resolved 是推断之后的结论，无论选没选都一样，竖屏横屏才不会跳档。
+ *
+ * 平板也挂一条：默认 100%（等于没缩，与加这条之前完全一致），但平板上想再小一点的
+ * 也能拉滑条 —— 同一个滑条就该对所有设备类型生效，否则「选了平板就怎么拉都没反应」
+ * 又是个说不清的坑。
+ *
+ * 缩的是根字号（rem 基准），不是整个文档。早先用的是 `html { zoom: 0.86 }`，实测下来是错的：
+ * zoom 只把元素画小，layout viewport 一点没变 —— 776px 的视口里，100vw 的元素算出来只有 667px，
+ * 100dvh 同理，结果是内容缩到一角、四周留白，看起来就像「变小了但范围没变大」，壳体还铺不满。
+ * 而且动态改 meta viewport 的 initial-scale 也完全不生效（innerWidth 没变），那条路也堵死。
+ *
+ * 改成动 rem 基准就干净了：Tailwind 的间距、字号、圆角几乎全是 rem，会按比例缩小；
+ * % / flex / dvh 这类弹性布局原样保留，该铺满的继续铺满，fixed 弹层也不受影响。 */
+html[data-folia-device-resolved='phone'] {
+  font-size: var(--folia-ui-scale-normal, 86%);
+}
+
+html[data-folia-device-resolved='tablet'] {
+  font-size: var(--folia-ui-scale-normal, 100%);
+}
+
+html[data-folia-ui-scale='compact'] {
+  font-size: var(--folia-ui-scale-compact, 76%);
+}
+
+/* 横屏（compact）下被打穿的三处 —— 都是「竖向空间按桌面那套 px 算」。
+ *
+ * 手机横屏的高度只有 360~400，比桌面矮得多，宽却比桌面还宽，所以按宽度的断点一个都不命中：
+ *
+ * ① 侧切入面板（GridView / GridMap / ArtistGrid）顶部固定 top-24 = 96px 起步，面板里第一块是
+ *    「宽度撑满的正方形封面」：w-80 减掉内边距还有 272px 高，比整块可用高度还高。它下面那层是
+ *    `flex-1 min-h-0`，于是被压成 0 高 —— 「添加到歌单」这类按钮就在那层里，等于完全点不到
+ *    （用户说的「被挡住」）。封面来自 Tailwind 的 aspect-square + w-full，rem 缩放也救不了它，
+ *    因为高度是跟着宽度算的。
+ * ② 歌单选择弹窗的列表写死 `max-h-[320px]`，同理把「新建歌单」顶出屏幕；弹窗本身也没有高度上限，
+ *    内容一高就上下同时溢出视口。
+ * ③ 右下角那排墙面工具（.lattice-tools）的 px 在 WallToolsButton.css 的 max-height 档里压过。
+ * ④ 面板底缘还整条压在播放条的命中区上：面板在 z-10 的首页层内、播放条在 z-60，
+ *    z-index 翻不过去。一边由底距让路（useSidePanelBottomPx 加了高度条件），
+ *    一边把那条只在鼠标下才有意义的全宽命中区在紧凑档交回 pass-through（见本段末 ④）。
+ *
+ * 只加 data 属性、不依赖 Tailwind 类名 —— 类名一改选择器就静默失效，这种 bug 最难查。
+ * 每条都用 vh 起头再跟一行 dvh：老 WebView 不认 dvh 时前面那行仍然生效。 */
+
+/* ① 侧切入面板：把 top-24 那 96px 还给内容，封面从正方形压成一条 64px 的横幅。
+ *
+ * 这里要同时解决两件事，少一件按钮就还是点不到：
+ *
+ *   a) 竖向空间不够 —— 面板内容（封面 + 信息 + 按钮排）本来就比矮屏高，里面那层
+ *      `flex-1 min-h-0 overflow-y-auto` 一被压就变成 0 高，内容区不滚、面板也不滚。
+ *      所以紧凑档下让**面板自己当唯一的滚动容器**：内容区交回正常流（flex: none + overflow: visible），
+ *      封面 → 标题 → 按钮按阅读顺序排，一次滚动到底。
+ *
+ *   b) 胶囊压在按钮上 —— 侧面板的底距原来只看宽度断点（`sm` 命中就贴 24px），而手机横屏既宽又矮：
+ *      胶囊几乎占满宽度、还居中，它下面那条补了 padding 的全宽命中区正好盖住面板下缘。
+ *      面板还压在 z-10 的首页层里，而播放条在 z-60，CSS 再怎么写都翻不过去 ——
+ *      只能由底距让路。这条已经在 useSidePanelBottomPx 里按高度收紧了，样式这边不必再管。
+ *
+ * 只加 data 属性、不依赖 Tailwind 类名 —— 类名一改选择器就静默失效，这种 bug 最难查。
+ * 每条都用 vh 起头再跟一行 dvh：老 WebView 不认 dvh 时前面那行仍然生效。 */
+
+/* ① 侧切入面板 */
+html[data-folia-ui-scale='compact'] [data-folia-cut-in-panel='true'] {
+  top: 10px;
+  left: 10px;
+  width: min(320px, 46vw);
+  padding: 14px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+html[data-folia-ui-scale='compact'] [data-folia-cut-in-cover='true'] {
+  height: 64px;
+  aspect-ratio: auto;
+  margin-bottom: 10px;
+}
+
+/* 内容区不再自己滚，交回面板那一层。 */
+html[data-folia-ui-scale='compact'] [data-folia-cut-in-scroll='true'] {
+  flex: none;
+  min-height: 0;
+  overflow: visible;
+}
+
+/* 按钮区：间距、内边距、字号各收一档，让「播放全部」这类主操作不用滚就露出来。
+ * `space-y-2` 与 `pt-4` 一律覆盖：靠工具类名选元素会在类名改动后静默失效。
+ * 上面的 margin-top 不动 —— GridMap 那块靠 `mt-auto` 顶到面板底部，覆盖掉就失去意义了。 */
+html[data-folia-ui-scale='compact'] [data-folia-cut-in-actions='true'] {
+  flex: none;
+  padding-top: 8px;
+}
+
+html[data-folia-ui-scale='compact'] [data-folia-cut-in-actions='true'] > * {
+  margin-top: 4px !important;
+  margin-bottom: 0 !important;
+}
+
+html[data-folia-ui-scale='compact'] [data-folia-cut-in-actions='true'] > *:first-child {
+  margin-top: 0 !important;
+}
+
+html[data-folia-ui-scale='compact'] [data-folia-cut-in-actions='true'] button {
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+  font-size: 11px !important;
+  line-height: 1.25 !important;
+  gap: 5px;
+}
+
+html[data-folia-ui-scale='compact'] [data-folia-cut-in-actions='true'] button svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* ①b 歌单网格「批量选择」面板（GridMapBatchPanel，挂在同一个侧切入面板里）的标题块。
+ *
+ * 它比另外三块多一行摘要（「已选 N 首 · 共 M 首」），而矮屏上那点高度只够**一**排按钮 ——
+ * 按钮区顶端的位置只由它上面那坨决定（实测：标题块 + 其上边距 + 列表容器 + 按钮区上边距）。
+ * 摘要单独占一行就等于把「播放 N 首」往下推 21px，正好推出可视区。
+ *
+ * 所以紧凑档把摘要并到标题行里（baseline 对齐、不换行），标题本身也收一档；
+ * 标题块之后的两层（列表容器、按钮区）上边距各压到 6px。
+ *
+ * 实测 676x228（更矮的一档，面板内容盒只有 78px）：改前「播放 N 首」在 y=109、完全在盒外
+ * （vis=0%、中心点 MISS）；改后落到 y=65..91，完整可见可点。 */
+html[data-folia-ui-scale='compact'] [data-folia-grid-batch-head='true'] {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+html[data-folia-ui-scale='compact'] [data-folia-grid-batch-head='true'] h3 {
+  font-size: 1rem !important;
+  line-height: 1.3 !important;
+}
+
+html[data-folia-ui-scale='compact'] [data-folia-grid-batch-head='true'] p {
+  flex: 0 0 auto;
+  margin-top: 0 !important;
+  font-size: 10px !important;
+  white-space: nowrap;
+}
+
+/* 标题块之后的兄弟（曲目列表容器 mt-4、按钮区 mt-3）一起收。 */
+html[data-folia-ui-scale='compact'] [data-folia-grid-batch-head='true'] ~ * {
+  margin-top: 6px !important;
+}
+
+/* ② 歌单选择弹窗：面板定高、标题钉住，只有内容区滚。 */
+html[data-folia-ui-scale='compact'] [data-folia-themed-dialog-kind='playlist-selection'] {
+  display: flex;
+  flex-direction: column;
+  width: min(64vw, 26rem) !important;
+  max-width: min(64vw, 26rem) !important;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - var(--folia-safe-area-top, 0px) - var(--folia-safe-area-bottom, 0px) - 32px);
+  padding: 12px 14px !important;
+  overflow: hidden;
+}
+
+/* 第 1 个 div 是标题块、第 2 个是内容（关闭按钮是 button，不算在 div 里）。 */
+html[data-folia-ui-scale='compact'] [data-folia-themed-dialog-kind='playlist-selection'] > div:nth-of-type(1) {
+  flex: none;
+  margin-bottom: 10px !important;
+}
+
+html[data-folia-ui-scale='compact'] [data-folia-themed-dialog-kind='playlist-selection'] > div:nth-of-type(2) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+html[data-folia-ui-scale='compact'] [data-folia-themed-dialog-kind='playlist-selection'] h2 {
+  font-size: 0.95rem !important;
+}
+
+/* 列表别再写死 320px，交给上面那层滚；行高与「新建歌单」也各收一档。 */
+html[data-folia-ui-scale='compact'] [data-folia-playlist-list='true'] {
+  max-height: none;
+}
+
+html[data-folia-ui-scale='compact'] [data-folia-playlist-option='true'] {
+  padding: 6px 10px !important;
+  gap: 8px !important;
+  border-radius: 10px !important;
+}
+
+html[data-folia-ui-scale='compact'] [data-folia-playlist-option='true'] div div:first-child {
+  font-size: 12px !important;
+}
+
+html[data-folia-ui-scale='compact'] [data-folia-playlist-selection='true'] > button {
+  flex: none;
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+  border-radius: 10px !important;
+  font-size: 12px !important;
+}
+
+/* ③ 右下角墙面工具：面板宽度与高度预算各收一档（面板本身能不能缩见 WallToolsButton.css）。 */
+html[data-folia-ui-scale='compact'] .lattice-tools {
+  right: 12px;
+  bottom: 12px;
+  --wall-tools-panel-width: min(260px, calc(100vw - 24px));
+  --wall-tools-top-reserve: 20px;
+  --wall-tools-panel-chrome: 190px;
+}
+
+/* ④ 播放条那条「悬停展开」用的全宽命中区，在手机上必须全部交回 pass-through（不止横屏那一档）。
+ *
+ * 它存在的意义是鼠标：指针落到屏幕下缘任意一点就把胶囊展开。为此它铺满整个定位层宽度
+ * （`w-full`），还往下补了 32px padding 一直贴到底边。触屏没有悬停，这条带走不了任何好处，
+ * 却把下缘整条变成了播放条的地盘 —— 侧切入面板、右下角工具面板贴在那里的按钮，
+ * 点击要么落在这块空盒子上（什么也不发生），要么落进胶囊自己的点击语义里。
+ *
+ * 原本只对横屏紧凑档（`data-folia-ui-scale='compact'`）让路，因为那档最容易撞；但真正决定它吃不吃到
+ * 右下角的是**容器宽度**，不是高度：
+ *   - 首页视图：外层是 `max-w-[calc(100vw-120px)]`，左右各留 60px，工具按钮（right-16、48 宽）正好躲过去；
+ *   - 其余视图（Lattice / 播放页）：外层换成 `max-w-[min(32rem+extra,100vw)] px-4`，命中区横跨整屏，
+ *     纵向从屏幕底一直到胶囊上沿（约 0–80px），而工具按钮是 bottom 16 + 48 → **整个被盖住**，
+ *     怎么点都是点在这块空盒子上，右下角工具面板 Renderer 完全不出来。
+ *
+ * 于是「在 bravais 里选一首不在播放的歌、点了播放」必定中：那个确定的 switch 是
+ * `shouldNavigateToPlayerOnTrackChange`，播放不是正在播放的那首会按「播放后进入的视图」跳转，
+ * 选成 Lattice 的话人就已经被翻到 Lattice 了 —— 那里的宽度约束没了，按钮就废了。
+ * 而选正在播放的那首只是暂停 / 继续，不做跳转，还在首页视图里，所以一切正常。
+ *
+ * 工具面板本身在 z-10 的那一层里、播放条在 z-60，z-index 翻不过去，所以只能让命中区让路：
+ * 定位层与命中盒都设成 none，只有可见的胶囊（含它里面的按钮）收回 auto。
+ * 悬停展开不受影响 —— 指针进到胶囊里时，React 仍然会按事件路径给命中盒派发 enter。 */
+html[data-runtime='capacitor-android'] [data-folia-player-bar-hitbox-host='true'] {
+  pointer-events: none !important;
+}
+
+html[data-runtime='capacitor-android'] [data-folia-player-bar-hitbox='true'],
+html[data-runtime='capacitor-android'] [data-folia-player-bar-hitbox='true'] > * {
+  pointer-events: none;
+}
+
+html[data-runtime='capacitor-android'] [data-folia-player-bar-hitbox-host='true'] [data-ponder='player-bar'] {
+  pointer-events: auto;
+}
+
+/* 触屏一律如此（不只是安卓 WebView）： `@media (hover: none)` 的设备没有悬停，
+ * 这条全宽命中区只会吞掉别人贴底控件的点击。 */
+@media (hover: none) {
+  [data-folia-player-bar-hitbox-host='true'] {
+    pointer-events: none !important;
+  }
+
+  [data-folia-player-bar-hitbox='true'],
+  [data-folia-player-bar-hitbox='true'] > * {
+    pointer-events: none;
+  }
+
+  [data-folia-player-bar-hitbox-host='true'] [data-ponder='player-bar'] {
+    pointer-events: auto;
+  }
+}
+
+/* ⑤ 首页网格的左右滑动选卡（Grid3DSlider）：横屏下「高度」是唯一的硬约束。
+ *
+ * 滚动容器（[data-grid3d-slider]）上下各写了 `py-24` = 6rem，横屏紧凑档下是 82.5px × 2。
+ * 它是个 flex 子项、min-height 又被 overflow 归零，于是容器高度全被内边距吃掉：
+ * 内容盒压成 0，卡片（比容器还高）从上下两头溢出，再被 overflow-y-hidden 各裁一刀 ——
+ * 滑到中间放大时看得最明显：上下各切掉五六十像素。
+ * 而「放大后的卡片」还往下探时，最底那截正好压在悬浮播放条上（播放按钮就在那儿）。
+ *
+ * 所以紧凑档下：
+ *   ① 把滚动容器的纵向内边距压到 20px —— 只留够「放大溢出 + 聚焦卡上移 6px」的那一点点，
+ *      不再靠裁剪兜底。放大倍数同一档也压到 1.12（见 Grid3DSlider 的
+ *      GRID3D_COMPACT_PEAK_SCALE）：溢出量是「封面宽 ×(倍数−1)/2」，倍数不降的话，
+ *      封面一大（上限 208）就又把内边距吃穿；
+ *   ② 底部标题块收细（名字一行 + 曲目数一行），别把卡片往下挤；
+ *   ③ 相纸卡在横屏退化成「带白边的方形封面卡」：素材区的三行文字在这么矮的屏上根本读不了，
+ *      却固定占掉 90px，卡片最小也装不下 —— 歌单名本来就在下面的标题块里，不必重复。
+ *      （封面尺寸由 Grid3DSlider 按容器高度反算，见 useCompactUiScale / GRID3D_COMPACT_*。）
+ *
+ * 判据：卡片放大后要整个看得见、上下都不被裁，且下缘留在播放条之上。 */
+html[data-folia-ui-scale='compact'] [data-grid3d-slider] {
+  padding-block: 20px;
+}
+
+html[data-folia-ui-scale='compact'] [data-grid3d-caption='true'] {
+  padding-top: 6px !important;
+  padding-bottom: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+html[data-folia-ui-scale='compact'] [data-grid3d-caption='true'] h3 {
+  font-size: 0.9rem !important;
+  line-height: 1.25 !important;
+}
+
+html[data-folia-ui-scale='compact'] [data-grid3d-caption='true'] p {
+  font-size: 9px !important;
+  line-height: 1.3 !important;
+  margin-top: 1px !important;
+}
+
+/* 相纸卡：只留封面。p-4 换成 6px 的窄白边、封面不再留底距 —— 卡片高度正好等于宽度，
+ * 和方形卡一样是 1:1，Grid3DSlider 那边才好按高度反算。 */
+html[data-folia-ui-scale='compact'] [data-grid3d-card='polaroid'] {
+  padding: 6px !important;
+}
+
+html[data-folia-ui-scale='compact'] [data-grid3d-card='polaroid'] [data-grid3d-card-cover='true'] {
+  margin-bottom: 0 !important;
+}
+
+html[data-folia-ui-scale='compact'] [data-grid3d-card-text='true'] {
+  display: none !important;
+}
+
+/* ===========================================================================
+ * ⑥ 安全区避让
+ *
+ * 门控用 `data-runtime='capacitor-android'`，不是「手机适配」开关：挖孔和系统栏是设备
+ * 固有特征，开关关着那几个控件照样被压在下面。
+ *
+ * 数值只读 `--folia-safe-area-*`，**不要**改回 `env(safe-area-inset-*)`：
+ *   · Android WebView 只报**挖孔**，从不报**系统栏** —— 没刘海的机器四项全是 0px，
+ *     有刘海的也只给刘海高度、不给状态栏高度；
+ *   · targetSdk 36 强制边到边，内容确实画到了系统栏下面，可网页拿到的避让量是 0；
+ *   · 国产 ROM 的 WebView 内核常常干脆不透传 env()，旧 Chromium（<140）还会直接报 0px。
+ *
+ * 这份变量由原生侧算好写进 `<html>` 的 inline style（PhoneFitCutout.resolveInsets +
+ * services/phoneInsets.ts）；index.css 里那份 `env()` 是桌面端与 iOS 的兜底值 ——
+ * 所以上面那些 `max(6px, …)`、`calc(100dvh - …)` 也一并改读变量了，那两边行为不变。
+ *
+ * 只挪**控件**，不给整层加内边距：早先给 `.fixed.inset-0` 内缩过一次，结果是顶部一条
+ * 空白、底部一条白边（就是用户说的「顶上空的、底下小白条」）。背景照旧铺到边，让路的
+ * 只有真的落在安全区里的那几个控件。
+ *
+ * 三种标记，按元素自己的处境选：
+ *   · `data-folia-safe-top="shift"` → margin-top。元素自己有内边距时用它；`absolute top-N`
+ *     的浮层也用它 —— 绝对定位盒的上边缘 = `top + margin-top`，照样往下挪。
+ *   · `data-folia-safe-top="pad"` → padding-top。元素自己没有 padding-top 时用它。
+ *   · `data-folia-safe-top="nudge"` → `relative; top`。居中的内容用它：给居中盒加
+ *     内外边距都只挪一半（居中算的是整个盒子，含边距），`top` 才是整份位移。
+ *
+ * 一律不加 `!important`：本文件的规则不在 @layer 里，按层叠顺序本来就压过 Tailwind 的
+ * @layer utilities，加 !important 只会把后面调样式的路堵死。
+ */
+html[data-runtime='capacitor-android'] [data-folia-safe-top='shift'] {
+  margin-top: var(--folia-safe-area-top, 0px);
+}
+
+html[data-runtime='capacitor-android'] [data-folia-safe-top='pad'] {
+  padding-top: var(--folia-safe-area-top, 0px);
+}
+
+html[data-runtime='capacitor-android'] [data-folia-safe-top='nudge'] {
+  position: relative;
+  top: var(--folia-safe-area-top, 0px);
+}
+
+/* 播放页左上角那颗返回：按安全区挪完仍贴着挖孔下沿，再多让 6px。
+ * 写在 shift 那条之后 —— 同特异性，后者生效。 */
+html[data-runtime='capacitor-android'] [data-folia-player-back] {
+  margin-top: calc(var(--folia-safe-area-top, 0px) + 6px);
+}
+
+html[data-runtime='capacitor-android'] [data-folia-safe-bottom='shift'] {
+  margin-bottom: var(--folia-safe-area-bottom, 0px);
+}
+
+html[data-runtime='capacitor-android'] [data-folia-safe-bottom='pad'] {
+  padding-bottom: var(--folia-safe-area-bottom, 0px);
+}
+
+html[data-runtime='capacitor-android'] [data-folia-safe-left='shift'] {
+  margin-left: var(--folia-safe-area-left, 0px);
+}
+
+html[data-runtime='capacitor-android'] [data-folia-safe-right='shift'] {
+  margin-right: var(--folia-safe-area-right, 0px);
+}
+
+/* 首页头部（LOGO + 搜索框）。整块自己没有内边距（p-4/p-8 在内层 grid 上），
+ * 所以直接加 padding-top；横屏时挖孔跑到左右两侧，padding-inline 一并让出来。 */
+html[data-runtime='capacitor-android'] [data-folia-home-header] {
+  padding-top: var(--folia-safe-area-top, 0px);
+  padding-left: var(--folia-safe-area-left, 0px);
+  padding-right: var(--folia-safe-area-right, 0px);
+}
+
+/* 目录页（GridMap）顶栏：自己是 `px-6 py-5`，padding-top 得叠在原来的 1.25rem 上，
+ * 直接写 padding-top 会把 py-5 顶掉。 */
+html[data-runtime='capacitor-android'] [data-folia-gridmap-header='true'] {
+  padding-top: calc(1.25rem + var(--folia-safe-area-top, 0px));
+  padding-left: calc(1.5rem + var(--folia-safe-area-left, 0px));
+  padding-right: calc(1.5rem + var(--folia-safe-area-right, 0px));
+}
+
+/* 艺术家页顶栏：自己是 `p-6`，同理叠在 1.5rem 上。 */
+html[data-runtime='capacitor-android'] [data-folia-artistgrid-header='true'] {
+  padding-top: calc(1.5rem + var(--folia-safe-area-top, 0px));
+  padding-left: calc(1.5rem + var(--folia-safe-area-left, 0px));
+  padding-right: calc(1.5rem + var(--folia-safe-area-right, 0px));
+}
+
+/* 播放页歌词里的曲目信息（歌手 / 曲名 / 专辑）用 nudge：Monet 那块在 `justify-center`
+ * 的列里，加内外边距只挪一半（居中算的是含边距的整个盒子），`relative; top` 才是整份位移。 */
+
+/* 两面墙右下角那排工具（Lattice / bravais 共用 components/wall/WallToolsButton）。
+ *
+ * 它是从**底部**往上排的（.lattice-tools-stack `bottom: 64px` + column-reverse），但向上能长到
+ * `calc(100vh - 底距 - 64px - var(--wall-tools-top-reserve))` —— 顶上让出的那 48px 是给
+ * **Electron 自绘标题栏**（h-8 = 32px + 16px 间距）留的。安卓没有标题栏，于是队列浮岛一开，
+ * 它的头部（「队列」那行字 + 存为歌单 / 清空两颗按钮）正好顶进摄像头区域 —— 两面墙都中。
+ *
+ * 所以安卓上把这份预留补上安全区：浮岛长到那么高时头部就停在系统栏下面。 */
+html[data-runtime='capacitor-android'] .lattice-tools {
+  --wall-tools-top-reserve: calc(48px + var(--folia-safe-area-top, 0px));
+}
+
+/* 两面墙（Lattice 队列拼贴 / bravais 资料库墙）左上角那颗返回：两墙共用同一个按钮
+ * （components/wall/WallBackButton，`.lattice-back`，absolute top:20px left:24px）。
+ * 它是墙上唯一常驻的顶部控件，也是最容易顶进挖孔的那一颗。 */
+html[data-runtime='capacitor-android'] .lattice-back {
+  margin-top: var(--folia-safe-area-top, 0px);
+  margin-left: var(--folia-safe-area-left, 0px);
+}
+
+/* bravais 的缝：整条缝是 `absolute; top:0; bottom:0`，里面的页签、标题、折叠 / 缩回按钮
+ * 只靠 `.bravais-seam-home` 那 16px 上内边距垫着 —— 摄像头区域里塞的就是这一排文字与按钮。
+ * 让的是缝内容那一层（`.bravais-seam-body`），一套规则覆盖首页 / 歌单 / 歌手 / 账户 /
+ * 搜索所有变体；它的 padding-bottom 由播放条安全区的 MotionValue 写在行内，两边不打架。 */
+html[data-runtime='capacitor-android'] .bravais-seam-body {
+  padding-top: var(--folia-safe-area-top, 0px);
+}
+
+/* ---------------------------------------------------------------------------
+ * HDR 投影的「屏幕镜像」
+ * -------------------------------------------------------------------------
+ *
+ * 手机屏幕朝上躺在仪表台上，画面经挡风玻璃反射进眼里 —— 玻璃是一面镜子，屏幕上
+ * 「正的」字反射过来是反的。所以先把整棵界面左右翻一次，反射回来才是正的。
+ *
+ * 挂在 <html> 上而不是 [data-folia-app-shell] 上：弹层一律 createPortal 到 body
+ * （提示条、命令面板、弹窗都在外壳外面），只翻外壳的话外壳是反的、提示条是正的，
+ * 一眼就看出来是两半拼的。翻根元素则连它们一起翻。
+ *
+ * 纯变换不动布局：命中判定由浏览器按变换后的坐标算，翻过来照样点到该点的那颗
+ * 按钮，不需要 JS 里再换算一遍。
+ */
+html[data-folia-mirror='true'] {
+  /*
+   * 高度必须写明，否则整屏会塌成 0 高 —— 黑屏。
+   *
+   * 元素一旦有 transform，就会变成所有 position: fixed 后代的**包含块**；而应用外壳
+   * 正是 `fixed inset-0`（AppShell.tsx）。<html> 默认高度是 auto，它的内容又全是
+   * fixed / absolute（都不参与布局），于是自己塌成 0 高 —— 外壳那四个 inset:0 解析到
+   * 一个 0 高的框上，整屏就什么都不剩了。偏偏自带内容高度的浮层（提示条）还看得见，
+   * 看上去就是「提示条被镜像了，界面却是一块黑」。
+   *
+   * 100% 是相对初始包含块（视口）算的，不进这条 transform 的坐标系，所以给了就是满屏。
+   */
+  height: 100%;
+  /*
+   * 根必须**自己钉在视口上**，光 `overflow: hidden` 挡不住。
+   *
+   * 元素一有 transform 就成了所有 `position: fixed` 后代的包含块（见上），代价是那些后代
+   * 不再跟着视口走，而是**跟着文档一起滚**。外壳正是 `fixed inset-0`，于是文档滚多少，
+   * 整个界面就被拖走多少 —— 拖出去的那一片是 body 的底色（#09090b），看上去就是「整屏
+   * 被拖到屏幕外，全黑了」（播放页最明显：那一屏本来就是一整块铺满的视觉层）。
+   *
+   * 而变换过的根不再把 `overflow` 交给视口，文档层那一档滚动照旧存在，写在根上的
+   * `overflow: hidden` 关不掉它 —— 只能让根自己退出文档流：fixed + inset:0 之后整个文档
+   * 没有可滚的内容，怎么拖都拖不动画面。
+   *
+   * 只在镜像时生效（普通状态下根还是那个根，滚动、输入框顶起键盘那一套照旧）。
+   */
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  /* 拖到头别把这一次拖动手势再传给外面（那会露出 WebView 的底）。 */
+  overscroll-behavior: none;
+  transform: scaleX(-1);
+}
+
+html[data-folia-mirror='true'] body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}

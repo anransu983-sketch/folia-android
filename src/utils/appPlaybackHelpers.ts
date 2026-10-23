@@ -18,7 +18,62 @@ export const extractCloudLyricText = (response: any): string => {
     return '';
 };
 
-export const findLatestActiveLineIndex = (lines: LyricData['lines'], time: number) => {
+type LyricLines = LyricData['lines'];
+
+type LineIndexCacheEntry = {
+    length: number;
+    starts: Float64Array;
+    renderEnds: Float64Array;
+    monotonic: boolean;
+};
+
+// Lines arrays are rebuilt (not mutated in place) whenever render hints migrate, so caching the
+// timing arrays per lines-array identity is safe and only costs one O(n) pass per song.
+const lineIndexCache = new WeakMap<LyricLines, LineIndexCacheEntry>();
+
+const resolveEffectiveRenderEnd = (line: LyricLines[number]): number =>
+    line.renderHints?.renderEndTime ?? line.endTime;
+
+const getLineIndexCache = (lines: LyricLines): LineIndexCacheEntry | null => {
+    const cached = lineIndexCache.get(lines);
+    if (cached && cached.length === lines.length) {
+        return cached;
+    }
+
+    if (lines.length === 0) {
+        return null;
+    }
+
+    const starts = new Float64Array(lines.length);
+    const renderEnds = new Float64Array(lines.length);
+    let monotonic = true;
+    let previousStart = Number.NEGATIVE_INFINITY;
+    let previousRenderEnd = Number.NEGATIVE_INFINITY;
+
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        if (!line) {
+            monotonic = false;
+            break;
+        }
+        const start = line.startTime;
+        const renderEnd = resolveEffectiveRenderEnd(line);
+        if (start < previousStart || renderEnd < previousRenderEnd || start > renderEnd) {
+            monotonic = false;
+            break;
+        }
+        previousStart = start;
+        previousRenderEnd = renderEnd;
+        starts[index] = start;
+        renderEnds[index] = renderEnd;
+    }
+
+    const entry: LineIndexCacheEntry = { length: lines.length, starts, renderEnds, monotonic };
+    lineIndexCache.set(lines, entry);
+    return entry;
+};
+
+const findLatestActiveLineIndexLinear = (lines: LyricLines, time: number) => {
     for (let index = lines.length - 1; index >= 0; index -= 1) {
         const line = lines[index];
         if (!line || time < line.startTime) {
@@ -29,6 +84,53 @@ export const findLatestActiveLineIndex = (lines: LyricData['lines'], time: numbe
         }
     }
     return -1;
+};
+
+// Finds the highest line index whose [startTime, renderEndTime] window contains `time`.
+// The linear scan walks the whole array during inter-line gaps, which this runs at 60fps,
+// so for the (overwhelmingly common) monotonic case we binary-search a cached timing table.
+export const findLatestActiveLineIndex = (lines: LyricLines, time: number) => {
+    if (lines.length < 8) {
+        return findLatestActiveLineIndexLinear(lines, time);
+    }
+
+    const cache = getLineIndexCache(lines);
+    if (!cache || !cache.monotonic) {
+        return findLatestActiveLineIndexLinear(lines, time);
+    }
+
+    const { starts, renderEnds } = cache;
+
+    // lastStarted = last index with startTime <= time.
+    let low = 0;
+    let high = starts.length;
+    while (low < high) {
+        const mid = (low + high) >> 1;
+        if (starts[mid] <= time) {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    const lastStarted = low - 1;
+    if (lastStarted < 0) {
+        return -1;
+    }
+
+    // firstCovered = first index with renderEnd >= time.
+    low = 0;
+    high = renderEnds.length;
+    while (low < high) {
+        const mid = (low + high) >> 1;
+        if (renderEnds[mid] >= time) {
+            high = mid;
+        } else {
+            low = mid + 1;
+        }
+    }
+
+    // The answer is the largest index satisfying both bounds.
+    return lastStarted >= low ? lastStarted : -1;
 };
 
 export const formatTime = (time: number) => {
@@ -56,6 +158,15 @@ export const getAudioSrcKind = (audioSrc: string | null): 'empty' | 'blob' | 'ht
     return 'other';
 };
 
+/**
+ * QQ 音乐的媒体 CDN。接口给回来的是 http 地址，而 Android 的明文策略默认把它们全拦掉
+ * （表现是 MEDIA_ERR_SRC_NOT_SUPPORTED，看着像音频坏了）。这些域名都有 https，一律升级。
+ */
+const QQ_MEDIA_HOST_SUFFIXES = ['.tc.qq.com', '.qqmusic.qq.com'];
+
+const isQqMediaHost = (hostname: string): boolean =>
+    QQ_MEDIA_HOST_SUFFIXES.some(suffix => hostname === suffix.slice(1) || hostname.endsWith(suffix));
+
 export const toSafeRemoteUrl = (url: string | null | undefined): string | null | undefined => {
     if (!url) {
         return url;
@@ -69,8 +180,13 @@ export const toSafeRemoteUrl = (url: string | null | undefined): string | null |
 
     try {
         const parsedUrl = new URL(normalizedUrl);
+        if (parsedUrl.protocol !== 'http:') {
+            return normalizedUrl;
+        }
+        if (isQqMediaHost(parsedUrl.hostname)) {
+            return normalizedUrl.replace(/^http:/, 'https:');
+        }
         if (
-            parsedUrl.protocol === 'http:' &&
             parsedUrl.hostname.startsWith('fs.') &&
             parsedUrl.hostname.endsWith('.kugou.com')
         ) {
@@ -83,12 +199,20 @@ export const toSafeRemoteUrl = (url: string | null | undefined): string | null |
     return normalizedUrl;
 };
 
-// Keeps KuGou's original HTTP media URL only in Electron; Web/PWA retains HTTPS normalization.
+// 酷狗 fs CDN 的 http 地址在 Electron 与安卓原生里都保留原样：换成 https 反而会被拒或返回
+// 无效音频，而这两个运行时都允许明文媒体播放。网页/PWA 必须继续归一成 https（混合内容会被拦）。
 export const toSafePlaybackUrl = (
     url: string | null | undefined,
     isElectron = typeof window !== 'undefined' && Boolean(window.electron)
 ): string | null | undefined => {
-    if (!url || !isElectron) {
+    if (!url) {
+        return url;
+    }
+
+    const isAndroidNative = typeof window !== 'undefined'
+        && (window as unknown as { Capacitor?: { getPlatform?: () => string } })
+            .Capacitor?.getPlatform?.() === 'android';
+    if (!isElectron && !isAndroidNative) {
         return toSafeRemoteUrl(url);
     }
 

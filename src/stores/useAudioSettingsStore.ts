@@ -35,6 +35,7 @@ export const MEDIA_CACHE_LIMIT_GB_KEY = 'folia_media_cache_limit_gb';
 
 /** Lab switch: start the restored last session playing instead of waiting for a press. */
 export const AUTO_PLAY_ON_LAUNCH_KEY = 'folia_auto_play_on_launch';
+export const KEEP_SCREEN_ON_WHILE_PLAYING_KEY = 'folia_keep_screen_on_while_playing';
 
 export const ENABLE_TRANSCODE_FALLBACK_KEY = 'folia_enable_transcode_fallback';
 
@@ -201,6 +202,8 @@ export type AudioSettingsState = {
     queueAddBehavior: QueueAddBehavior;
     /** Whether entering the app starts the restored session by itself. Off unless asked for. */
     autoPlayOnLaunch: boolean;
+    /** 播放时保持屏幕常亮（Android 的 FLAG_KEEP_SCREEN_ON）。Off by default. */
+    keepScreenOnWhilePlaying: boolean;
     /** Electron-only recovery for local and Navidrome formats Chromium cannot decode. */
     enableTranscodeFallback: boolean;
     /** Report finished plays of online NetEase tracks to the signed-in account. Off by default. */
@@ -230,6 +233,7 @@ export type AudioSettingsState = {
     handleSetMediaCacheLimitGb: (gigabytes: number) => void;
     handleSetQueueAddBehavior: (behavior: QueueAddBehavior) => void;
     handleToggleAutoPlayOnLaunch: (enable: boolean) => void;
+    handleToggleKeepScreenOnWhilePlaying: (enable: boolean) => void;
     handleToggleTranscodeFallback: (enable: boolean) => void;
     handleToggleNeteaseScrobble: (enable: boolean) => void;
     handleTogglePlaybackFade: (enable: boolean) => void;
@@ -313,6 +317,7 @@ export const useAudioSettingsStore = create<AudioSettingsState>((set, get) => ({
     mediaCacheLimitGb: readStoredMediaCacheLimitGb(),
     queueAddBehavior: readStoredQueueAddBehavior(),
     autoPlayOnLaunch: getStoredBoolean(AUTO_PLAY_ON_LAUNCH_KEY, false),
+    keepScreenOnWhilePlaying: getStoredBoolean(KEEP_SCREEN_ON_WHILE_PLAYING_KEY, false),
     enableTranscodeFallback: getStoredBoolean(
         ENABLE_TRANSCODE_FALLBACK_KEY,
         typeof window !== 'undefined' && Boolean(window.electron?.requestTranscodeFallback),
@@ -365,6 +370,10 @@ export const useAudioSettingsStore = create<AudioSettingsState>((set, get) => ({
             type: 'info',
             text: i18n.t('notifications.' + (enable ? 'autoPlayOnLaunchOn' : 'autoPlayOnLaunchOff')),
         });
+    },
+    handleToggleKeepScreenOnWhilePlaying: (enable) => {
+        setStoredBoolean(KEEP_SCREEN_ON_WHILE_PLAYING_KEY, enable);
+        set({ keepScreenOnWhilePlaying: enable });
     },
     handleToggleTranscodeFallback: (enable) => {
         setStoredBoolean(ENABLE_TRANSCODE_FALLBACK_KEY, enable);
@@ -513,6 +522,7 @@ export const selectAudioSettingsSnapshot = (state: AudioSettingsState) => ({
     mediaCacheLimitGb: state.mediaCacheLimitGb,
     queueAddBehavior: state.queueAddBehavior,
     autoPlayOnLaunch: state.autoPlayOnLaunch,
+    keepScreenOnWhilePlaying: state.keepScreenOnWhilePlaying,
     enableTranscodeFallback: state.enableTranscodeFallback,
     neteaseScrobbleEnabled: state.neteaseScrobbleEnabled,
     playbackFadeEnabled: state.playbackFadeEnabled,
@@ -528,6 +538,7 @@ export const selectAudioSettingsSnapshot = (state: AudioSettingsState) => ({
     handleSetMediaCacheLimitGb: state.handleSetMediaCacheLimitGb,
     handleSetQueueAddBehavior: state.handleSetQueueAddBehavior,
     handleToggleAutoPlayOnLaunch: state.handleToggleAutoPlayOnLaunch,
+    handleToggleKeepScreenOnWhilePlaying: state.handleToggleKeepScreenOnWhilePlaying,
     handleToggleTranscodeFallback: state.handleToggleTranscodeFallback,
     handleToggleNeteaseScrobble: state.handleToggleNeteaseScrobble,
     handleTogglePlaybackFade: state.handleTogglePlaybackFade,

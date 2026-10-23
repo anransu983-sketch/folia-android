@@ -26,6 +26,13 @@ export type SettingsOptionDef = {
     electronOnly?: boolean;
     /** Asked by the search: false where the page does not draw the row on this machine (a row for one system). */
     available?: () => boolean;
+    /**
+     * Translation key of the longer explanation the row keeps behind its "i", rather than under its
+     * label. The settings search matches it as well: a word people would look for is usually in the
+     * explanation and not in the label, so declaring it here puts it in the index too — and it is
+     * written in one place, which is the whole point of the table.
+     */
+    noteKey?: string;
 };
 
 /** Whether the page draws a group or a row here: what the search asks before it lists one. */
@@ -34,7 +41,7 @@ export const isDrawnHere = (
     machine: { isElectron: boolean },
 ): boolean => (machine.isElectron || !def.electronOnly) && def.available?.() !== false;
 
-export const option = (group: SettingsGroupDef, id: string, labelKey: string, marks?: Pick<SettingsOptionDef, 'electronOnly' | 'available'>): SettingsOptionDef => ({
+export const option = (group: SettingsGroupDef, id: string, labelKey: string, marks?: Pick<SettingsOptionDef, 'noteKey' | 'electronOnly' | 'available'>): SettingsOptionDef => ({
     id,
     labelKey,
     group,

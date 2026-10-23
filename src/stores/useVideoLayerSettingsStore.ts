@@ -2,12 +2,15 @@ import { create } from 'zustand';
 import { getStoredBoolean, getStoredString, setStoredBoolean } from './storagePrimitives';
 import {
     canPersistVideoLayerFile,
+    clearNativeVideoLayerPick,
     clearVideoLayerFileHandle,
     loadVideoLayerFileHandle,
     pickVideoLayerFile,
+    readNativeVideoLayerPick,
     readVideoLayerFileHandle,
     saveVideoLayerFileHandle,
 } from '../services/videoLayerFile';
+import { isCapacitorAndroid } from '../platform/runtime';
 
 // src/stores/useVideoLayerSettingsStore.ts
 // The built-in video layer behind the lyrics: a muted video (a picked local file, else a URL) that
@@ -15,6 +18,10 @@ import {
 // the OBS sources too (they are configured from that same payload). The local file is a handle in
 // this window's IndexedDB: a shortcode cannot carry it, and an OBS browser source runs in OBS's own
 // browser profile, which cannot open it.
+//
+// On Android there is no such handle: the native side keeps one copy of the video in the app's
+// private directory and this window only holds a loopback URL to it, re-asked on every start
+// (its port is assigned per process, so a stored URL would go stale).
 
 export type VideoLayerFit = 'cover' | 'contain';
 
@@ -44,7 +51,7 @@ export type VideoLayerSettingsState = {
     videoLayerUrl: string;
     videoLayerOpacity: number;
     videoLayerFit: VideoLayerFit;
-    /** Runtime only: a blob URL for the picked file, rebuilt from the stored handle on each start. */
+    /** Runtime only: what the <video> plays — a blob URL for a picked file, or Android's loopback URL. */
     localFileUrl: string | null;
     localFileName: string | null;
     localFileStatus: VideoLayerLocalFileStatus;
@@ -70,20 +77,33 @@ export const useVideoLayerSettingsStore = create<VideoLayerSettingsState>((set, 
     // Bumped by every pick/clear so a slow restore or re-grant cannot overwrite a newer choice.
     let fileRevision = 0;
 
-    const showFile = (file: File) => {
+    /** Only blob URLs are ours to revoke: Android's is a loopback address owned by the native server. */
+    const revokePrevious = () => {
         const previous = get().localFileUrl;
-        if (previous) URL.revokeObjectURL(previous);
-        set({ localFileUrl: URL.createObjectURL(file), localFileName: file.name, localFileStatus: 'ready' });
+        if (previous && previous.startsWith('blob:')) URL.revokeObjectURL(previous);
     };
 
+    const showSource = (url: string, name: string) => {
+        revokePrevious();
+        set({ localFileUrl: url, localFileName: name, localFileStatus: 'ready' });
+    };
+
+    const showFile = (file: File) => showSource(URL.createObjectURL(file), file.name);
+
     const dropFile = () => {
-        const previous = get().localFileUrl;
-        if (previous) URL.revokeObjectURL(previous);
+        revokePrevious();
         set({ localFileUrl: null, localFileName: null, localFileStatus: 'none' });
     };
 
     const loadStoredFile = async (request: boolean) => {
         const revision = fileRevision;
+        // Android: the copy lives in the app's private directory; ask native for its current URL.
+        if (isCapacitorAndroid()) {
+            const native = await readNativeVideoLayerPick();
+            if (!native || revision !== fileRevision) return;
+            showSource(native.url, native.name);
+            return;
+        }
         const handle = await loadVideoLayerFileHandle();
         if (!handle || revision !== fileRevision) return;
         let result: Awaited<ReturnType<typeof readVideoLayerFileHandle>>;
@@ -139,15 +159,18 @@ export const useVideoLayerSettingsStore = create<VideoLayerSettingsState>((set, 
             restoreStarted = true;
             if (picked.handle) await saveVideoLayerFileHandle(picked.handle);
             else await clearVideoLayerFileHandle();
-            showFile(picked.file);
+            if (picked.url) showSource(picked.url, picked.name);
+            else if (picked.file) showFile(picked.file);
             get().setVideoLayerEnabled(true);
-            return picked.file.name;
+            return picked.name;
         },
         clearLocalFile: async () => {
             fileRevision += 1;
             restoreStarted = true;
             dropFile();
             await clearVideoLayerFileHandle();
+            // 安卓那一端删的是私有目录里的副本：不清，下次开回来它又回来了。
+            await clearNativeVideoLayerPick();
         },
         restoreLocalFile: () => loadStoredFile(false),
         regrantLocalFile: () => loadStoredFile(true),

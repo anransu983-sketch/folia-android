@@ -1,4 +1,5 @@
 import type { SonnetTuning, Theme } from '../../../types';
+import { getPhoneInsets } from '../../../services/phoneInsets';
 import { normalizeFontWeight, resolveThemeFontStack } from '../../../utils/fontStacks';
 import type { SonnetParagraph, SonnetShot } from './types';
 import { hashSonnetSeed } from './sonnetRandom';
@@ -166,7 +167,21 @@ export const buildSonnetScene = (
             })
         });
         descText.alpha = 0.3;
-        descText.position.set(width - 20, 20);
+        /*
+         * 右上角那一行歌曲描述：安卓上要躲开挖孔 / 状态栏。
+         *
+         * 它是画在 Pixi 画布**里面**的，不是 DOM —— CSS 那套 `data-folia-safe-top`
+         * （androidPhoneFit.css）够不着，所以只能在这儿按原生量出来的 inset 把它
+         * 往下、往左推：竖屏躲的是顶部状态栏 / 刘海，横屏挖孔跑到右边，正好压在这
+         * 一行上（`anchor(1, 0)` 是右上角对齐），所以右 inset 也要让。
+         *
+         * 桌面端拿到的 inset 是 0（phoneInsets 只在安卓原生运行时才写值），加 0 等于
+         * 位置不变。壁纸叠层（系统悬浮层）以前也是 0 —— 它是另一个 WebView，没有
+         * Capacitor 桥；现在由原生跟着状态包把 inset 推下来（见
+         * services/phoneInsets.applyPushedPhoneInsets），这一行在叠层上同样让开。
+         */
+        const phoneInsets = getPhoneInsets();
+        descText.position.set(width - 20 - phoneInsets.right, 20 + phoneInsets.top);
         descText.anchor.set(1, 0);
         if (showOuterMetadata) sceneBackgroundLayer.addChild(descText);
     }

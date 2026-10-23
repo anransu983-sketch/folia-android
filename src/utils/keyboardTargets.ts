@@ -58,6 +58,24 @@ export const isSliderKey = (event: Pick<KeyboardEvent, 'target' | 'key'>) => (
 );
 
 /**
+ * 一次 Esc 是不是系统返回（安卓返回键 / 边缘返回手势）变的。
+ *
+ * 原生那边把返回转成一次 Escape 派发到 window（useNativeBackButton），派发前打上这个标记。
+ * 两者的语义不一样：键盘 Esc 是「逐级取消」（先收起聚焦卡、再清焦点环……），系统返回是
+ * 「回退一层」——墙上那个键盘焦点环不是一个层，在它上面停一下会让人以为按了返回没反应，
+ * 所以处理器看到这个标记时跳过那一级。
+ */
+const NATIVE_BACK_FLAG = 'foliaNativeBack';
+
+export const markNativeBackKey = (event: Event): void => {
+    (event as unknown as Record<string, unknown>)[NATIVE_BACK_FLAG] = true;
+};
+
+export const isNativeBackKey = (event: Event): boolean => (
+    (event as unknown as Record<string, unknown>)[NATIVE_BACK_FLAG] === true
+);
+
+/**
  * 当前有没有模态窗口声明自己接管了键盘。
  *
  * 用 DOM 属性而不是共享 state，是这个仓库既有的约定：每个模态自己挂

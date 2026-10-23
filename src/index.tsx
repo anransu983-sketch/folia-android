@@ -1,5 +1,8 @@
 import { Buffer } from 'buffer';
 import { installGlobalVisualizerFrameRateLimiter } from './utils/frameRateLimiter';
+import { ensureBackgroundRenderGateInstalled } from './utils/backgroundRenderGate';
+import { installNativeAndroidBridge } from './services/nativeAndroidBridge';
+import { installAndroidPhoneFitPreference, installDeviceProfilePreference } from './services/androidPhoneLayout';
 import { installConsoleLogCapture } from './utils/consoleLogBuffer';
 import { installDebugModule } from './services/debug/debugModule';
 import { installMemorySampleFeed } from './services/debug/memorySamples';
@@ -21,5 +24,11 @@ installMemorySampleFeed();
 // observer or the rows it retains.
 // if (import.meta.env.DEV) installCoverSizeAudit();
 installGlobalVisualizerFrameRateLimiter();
+// 后台渲染总闸（useBackgroundRenderPause 的底层）：装了不等于暂停，只是让 rAF 过一道闸。
+ensureBackgroundRenderGateInstalled();
+// 安卓原生桥与手机适配偏好：只在 Capacitor 安卓运行时生效，其他平台为空操作。
+installNativeAndroidBridge();
+installAndroidPhoneFitPreference();
+installDeviceProfilePreference();
 
 void import('./bootstrap');

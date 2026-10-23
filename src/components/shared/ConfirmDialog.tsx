@@ -13,6 +13,8 @@ export interface ConfirmDialogProps {
     cancelText?: string;
     confirmVariant?: 'primary' | 'danger';
     isDaylight?: boolean;
+    /** 中途有活儿在跑（比如翻页前要读一次歌单）时挂上：关掉会留下半套状态。 */
+    closeDisabled?: boolean;
     onConfirm: () => void;
     onClose: () => void;
 }
@@ -26,6 +28,7 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     cancelText,
     confirmVariant = 'primary',
     isDaylight = false,
+    closeDisabled = false,
     onConfirm,
     onClose,
 }) => {
@@ -40,6 +43,7 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         <ThemedDialog
             isOpen={isOpen}
             onClose={onClose}
+            closeDisabled={closeDisabled}
             isDaylight={isDaylight}
             title={title}
             description={typeof description === 'string' ? description : undefined}

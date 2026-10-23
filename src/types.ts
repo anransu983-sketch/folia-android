@@ -1310,6 +1310,13 @@ export interface LocalSong {
   fileName: string;
   filePath: string; // File path for reference
   fileHandle?: FileSystemFileHandle; // For re-accessing the file (not persisted, stored in memory)
+  /**
+   * 安卓原生曲库的音频标识（MediaStore 的 id，或导入时写进私有目录的文件名）。
+   *
+   * 不存播放 URL：那个地址是原生临时起的小服务（端口每次启动都可能变），
+   * 存下来重启就失效。播放前用它按当前端口重新拼（见 nativeAudioUrlForRef）。
+   */
+  nativeAudioRef?: string;
   duration: number; // milliseconds
   fileSize: number; // bytes
   fileLastModified?: number; // milliseconds since epoch
@@ -1387,6 +1394,14 @@ export interface LocalLibrarySnapshotNode {
 
 export interface LocalLibrarySnapshot {
   rootFolderName: string;
+  /**
+   * 「删除文件夹」留下的墓碑。
+   *
+   * 删根目录只删掉了库里的歌，而**刷新**在安卓上等于整库重扫一次（resyncAllFolders →
+   * scanAndroidDeviceMusic），歌会被原样扫回来 —— 于是「删了、一刷新又回来了」。
+   * 所以删根时留一条记录：刷新那条路照它跳过，只有用户**显式**点「扫描设备音乐」才清掉。
+   */
+  rootRemoved?: boolean;
   ignoredFolderPaths?: string[];
   lyricFormatOrder?: import('./utils/lyrics/localLyricFormatOrder').LocalLyricFileFormat[]; // Sidecar lyric format order this scan used; undefined = default order
   scannedAt: number;
