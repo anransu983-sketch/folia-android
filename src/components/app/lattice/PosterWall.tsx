@@ -74,7 +74,8 @@ const EXPANDED_SIZE = EXPANSION_SPAN.cols * (CELL_SIZE + GAP) - GAP;
 // under the wall's buttons. A section the explore wall is taken to has its heading put there.
 const CAMERA_HOME = { x: 34, y: 80 };
 
-const getScale = (width: number) => width < 640 ? 0.52 : width < 1100 ? 0.64 : 0.76;
+// 与 bravais 的 getBravaisScale 同一组数（改这里时一并改）：窄屏一档 .62 是手机密度档，见 bravaisConstants。
+const getScale = (width: number) => width < 640 ? 0.62 : width < 1100 ? 0.64 : 0.76;
 
 const getWorldBounds = (camera: LatticeCamera, viewport: { width: number; height: number }): Bounds => ({
     left: -camera.x / camera.scale,

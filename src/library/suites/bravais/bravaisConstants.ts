@@ -44,10 +44,34 @@ export const BRAVAIS_NARROW_VIEWPORT_PX = 900;
 export const BRAVAIS_OVERSCAN = 420;
 /** 离已渲染范围的边缘还剩这么多（世界单位）时重新裁剪。 */
 export const BRAVAIS_CULL_EDGE_MARGIN = 160;
+/**
+ * 窄屏（手机竖屏，<640）一档的预渲染距离与重裁余量。窄屏的世界可见宽度本来就小（约 660），420 的预渲染
+ * 只够半屏多一点，手指一甩就拖出已渲染范围、露出空白，等重裁与入场动画补上又是一阵发白。把预渲染
+ * 扩到 1100（约 1.7 屏宽）、重裁余量留到 420：拖动全程边缘始终有货，代价是多渲染几块磁贴
+ * （仍远低于 MAX_RENDERED_INSTANCES 的上限）。宽屏两数与原来一模一样。
+ */
+export const BRAVAIS_OVERSCAN_NARROW = 1100;
+export const BRAVAIS_CULL_EDGE_MARGIN_NARROW = 420;
 
-/** 相机缩放档位，与 Lattice 的 PosterWall 相同（<640: .52，<1100: .64，否则 .76）。 */
+/** 缩放分档里窄屏一档的宽度断点，预渲染分档与它对齐。 */
+export const BRAVAIS_NARROW_SCALE_PX = 640;
+
+/** 按视口宽度取预渲染距离：窄屏用扩过的一档，其余是原值。 */
+export const getBravaisOverscan = (viewportWidth: number) => (
+    viewportWidth < BRAVAIS_NARROW_SCALE_PX ? BRAVAIS_OVERSCAN_NARROW : BRAVAIS_OVERSCAN
+);
+/** 按视口宽度取重裁余量：窄屏用扩过的一档，其余是原值。 */
+export const getBravaisCullEdgeMargin = (viewportWidth: number) => (
+    viewportWidth < BRAVAIS_NARROW_SCALE_PX ? BRAVAIS_CULL_EDGE_MARGIN_NARROW : BRAVAIS_CULL_EDGE_MARGIN
+);
+
+/**
+ * 相机缩放档位，与 Lattice 的 PosterWall 相同（<640: .62，<1100: .64，否则 .76）。
+ * 窄屏一档原是 .52：真机（S26 Ultra 竖屏）上卡片显得小而散、拖动时大片空场，收到 .62 后一屏的
+ * 世界宽度从约 790 降到约 660，卡片更大更密；.64 的中档与它只差 .02，窄屏一屏仍比中档多看到一点。
+ */
 export const getBravaisScale = (viewportWidth: number) => (
-    viewportWidth < 640 ? 0.52 : viewportWidth < 1100 ? 0.64 : 0.76
+    viewportWidth < BRAVAIS_NARROW_SCALE_PX ? 0.62 : viewportWidth < 1100 ? 0.64 : 0.76
 );
 
 /** 缝开合与相机让位的补间时长（秒）。 */
