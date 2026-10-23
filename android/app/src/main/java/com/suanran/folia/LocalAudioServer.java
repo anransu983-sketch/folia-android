@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -189,6 +190,29 @@ final class LocalAudioServer {
             if (host.equals(suffix) || host.endsWith("." + suffix)) return true;
         }
         return false;
+    }
+
+    /** 日志用：只取 host。完整直链带签名/IP/expire 参数，不进日志（与 Web 侧「只记 host」口径一致）。 */
+    private static String hostOf(String url) {
+        HttpUrl parsed = HttpUrl.parse(url);
+        return parsed != null ? parsed.host() : "-";
+    }
+
+    /** 日志用：只取 itag 参数（定位是哪条格式流），同样不带任何签名参数。 */
+    private static String itagOf(String url) {
+        HttpUrl parsed = HttpUrl.parse(url);
+        String itag = parsed != null ? parsed.queryParameter("itag") : null;
+        return itag != null ? itag : "-";
+    }
+
+    /** 字节转小写十六进制（诊断埋点看应答开头魔数用）。 */
+    private static String hexOf(byte[] bytes) {
+        StringBuilder hex = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            hex.append(Character.forDigit((b >> 4) & 0xF, 16));
+            hex.append(Character.forDigit(b & 0xF, 16));
+        }
+        return hex.toString();
     }
 
     /** 复制进私有目录的音频存放位置。 */
@@ -472,11 +496,47 @@ final class LocalAudioServer {
         String range = headers.get("range");
         if (range != null && range.startsWith("bytes=")) request.header("Range", range);
 
-        Response upstream = remoteAudioClient.newCall(request.build()).execute();
+        Request builtRequest = request.build();
+        // 诊断埋点（remote-audio-probe）：取流真正发出的形态钉进日志——UA 前 20 字符、
+        // Range 原值、UA 出处（extra=调用方所带 / default=服务端默认）、目标 host。
+        // 只记 host，不记完整直链（签名参数不进日志）。
+        String sentUserAgent = builtRequest.header("User-Agent");
+        String sentRange = builtRequest.header("Range");
+        boolean userAgentFromExtra = false;
+        if (extraHeaders != null) {
+            for (String key : extraHeaders.keySet()) {
+                if ("user-agent".equals(key.toLowerCase(Locale.ROOT))) userAgentFromExtra = true;
+            }
+        }
+        Log.i(TAG, "remote-audio-probe req host=" + hostOf(target)
+            + " ua=" + (sentUserAgent == null ? "-"
+                : sentUserAgent.substring(0, Math.min(20, sentUserAgent.length())))
+            + " range=" + (sentRange == null ? "-" : sentRange)
+            + " via=" + (userAgentFromExtra ? "extra" : "default"));
+
+        Response upstream = remoteAudioClient.newCall(builtRequest).execute();
+        // 诊断埋点（remote-audio-probe）：上游应答的状态/Content-Type 与开头 16 字节魔数。
+        // peekBody 只窥探、不消费，正式转发流原样不动；埋点自身出错只记一行，不改取流行为。
+        try {
+            ResponseBody probeBody = upstream.body();
+            String probeType = probeBody != null && probeBody.contentType() != null
+                ? probeBody.contentType().toString() : "-";
+            String first16 = "-";
+            if (probeBody != null) {
+                byte[] peeked = upstream.peekBody(16).bytes();
+                if (peeked.length > 0) first16 = hexOf(peeked);
+            }
+            Log.i(TAG, "remote-audio-probe resp host=" + hostOf(target) + " code=" + upstream.code()
+                + " type=" + probeType + " first16=" + first16);
+        } catch (IOException | RuntimeException probeError) {
+            Log.i(TAG, "remote-audio-probe resp host=" + hostOf(target) + " code=" + upstream.code()
+                + " peek failed (" + probeError.getClass().getSimpleName() + ")");
+        }
         try {
             ResponseBody body = upstream.body();
             if (!upstream.isSuccessful() || body == null) {
-                Log.w(TAG, "remote audio upstream " + upstream.code() + " for " + target);
+                Log.w(TAG, "remote audio upstream " + upstream.code()
+                    + " for host=" + hostOf(target) + " itag=" + itagOf(target));
                 writeStatus(output, 502, "Upstream Error");
                 return;
             }
@@ -496,7 +556,7 @@ final class LocalAudioServer {
             }
             boolean partial = upstream.code() == 206 || contentRange != null;
 
-            Log.i(TAG, "remote " + target + " -> " + upstream.code()
+            Log.i(TAG, "remote " + hostOf(target) + " itag=" + itagOf(target) + " -> " + upstream.code()
                 + " type=" + contentType + " size=" + size + " range=" + (contentRange == null ? "-" : contentRange));
 
             StringBuilder response = new StringBuilder();
