@@ -41,6 +41,10 @@ export const usePlaybackRuntimeRefs = () => {
     // The recoveries of an online song's address in flight, one per start of a song (its key and
     // `startOfAskedSong`), so one for a start never answers for another (createOnlineRecoveryController.ts).
     const onlinePlaybackRecoveryRef = useRef<Map<string, Promise<OnlineRecovery>>>(new Map());
+    // Media-failure recoveries already spent per start of a song; createOnlineRecoveryController
+    // caps them (MAX_MEDIA_FAILURE_RECOVERIES_PER_START) so a start whose addresses are re-minted
+    // on every ask cannot refresh silently forever.
+    const mediaRecoveryAttemptsRef = useRef<Map<string, number>>(new Map());
     const lastAudioRecoverySourceRef = useRef<string | null>(null);
     const currentOnlineAudioUrlFetchedAtRef = useRef<number | null>(null);
 
@@ -68,6 +72,7 @@ export const usePlaybackRuntimeRefs = () => {
         pendingVolumePreviewRef,
         pendingResumeTimeRef,
         onlinePlaybackRecoveryRef,
+        mediaRecoveryAttemptsRef,
         lastAudioRecoverySourceRef,
         currentOnlineAudioUrlFetchedAtRef,
     }), []);

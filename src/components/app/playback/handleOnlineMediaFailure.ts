@@ -58,7 +58,10 @@ export const handleOnlineMediaFailure = async ({
             });
     };
 
-    const recovery = await recoverOnlinePlaybackSource({ failedSrc, resumeAt, autoplay, bypassMediaCache: isBlob });
+    // fromMediaFailure: this recovery is spent from the start's budget (createOnlineRecoveryController),
+    // so a song whose every refreshed address fails alike is told about after a few rounds instead of
+    // being refreshed silently forever. The retry above is the listener's own and goes through force.
+    const recovery = await recoverOnlinePlaybackSource({ failedSrc, resumeAt, autoplay, bypassMediaCache: isBlob, fromMediaFailure: true });
     if (recovery.recovered || recovery.stale) return;
     // An online song that cannot be played says why: what asking for its address again came to, or
     // else the media error's code.

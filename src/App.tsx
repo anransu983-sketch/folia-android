@@ -377,6 +377,7 @@ export default function App() {
         pendingVolumePreviewRef,
         pendingResumeTimeRef,
         onlinePlaybackRecoveryRef,
+        mediaRecoveryAttemptsRef,
         lastAudioRecoverySourceRef,
         currentOnlineAudioUrlFetchedAtRef,
     } = usePlaybackRuntimeRefs();
@@ -654,12 +655,13 @@ export default function App() {
         shouldAutoPlayRef: shouldAutoPlay,
         pendingResumeTimeRef,
         onlinePlaybackRecoveryRef,
+        mediaRecoveryAttemptsRef,
         lastAudioRecoverySourceRef,
         currentOnlineAudioUrlFetchedAtRef,
         persistLastPlaybackCache,
         onlineAudioUrlTtlMs: ONLINE_AUDIO_URL_TTL_MS,
         onlineAudioUrlRefreshBufferMs: ONLINE_AUDIO_URL_REFRESH_BUFFER_MS,
-    }), [audioQuality, audioSrc, audioRef, blobUrlRef, currentOnlineAudioUrlFetchedAtRef, currentSong, lastAudioRecoverySourceRef, onlinePlaybackRecoveryRef, pendingResumeTimeRef, persistLastPlaybackCache, setAudioSrc, setCurrentSong, setPlayQueue, shouldAutoPlay]);
+    }), [audioQuality, audioSrc, audioRef, blobUrlRef, currentOnlineAudioUrlFetchedAtRef, currentSong, lastAudioRecoverySourceRef, mediaRecoveryAttemptsRef, onlinePlaybackRecoveryRef, pendingResumeTimeRef, persistLastPlaybackCache, setAudioSrc, setCurrentSong, setPlayQueue, shouldAutoPlay]);
 
     const getCoverUrl = useMemo(
         () => createCoverUrlResolver(cachedCoverUrl, currentSong),
@@ -2549,6 +2551,10 @@ export default function App() {
                 playbackAutoSkipCountRef.current = 0;
                 // The source plays, so a later TTL refresh of the same media is legitimate again.
                 lastAudioRecoverySourceRef.current = null;
+                // The same for the media-failure budget: what plays has its starts' budgets back.
+                // Whole-map is safe here: a budget only matters to the start it belongs to, and
+                // every other start in the map is already history once this one is playing.
+                mediaRecoveryAttemptsRef.current.clear();
                 setPlayerState(PlayerState.PLAYING);
                 // A preview clip is told of as it is heard, once per start of the song.
                 notePreviewPlaying(e.currentTarget.currentSrc, t);

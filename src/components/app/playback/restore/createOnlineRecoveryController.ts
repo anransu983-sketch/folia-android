@@ -33,7 +33,21 @@ export interface OnlineRecoveryOptions {
     force?: boolean;
     // The media cache's copy is the one that failed to play: the platform is asked, not the cache.
     bypassMediaCache?: boolean;
+    // The media element itself failed (handleOnlineMediaFailure): the recovery counts against the
+    // per-start budget below. Proactive refreshes (an address that merely ran out of TTL, a play()
+    // that threw) do not set it and are never refused by the budget.
+    fromMediaFailure?: boolean;
 }
+
+// How many times one start of a song may have its address asked for again after a media error
+// before the recovery gives up and the failure is handed to the listener (skipAfterPlaybackFailure).
+// The per-file guard below cannot see every loop: a platform whose address is re-minted on every
+// ask (YouTube Music's bridge hands out a fresh googlevideo link per resolve, so even the loopback
+// token wrapping it differs every round) presents a brand-new key each time, and without a budget
+// the error -> refresh -> error cycle ran about once a second forever, never surfacing the failure.
+// Three is deliberately small - a genuinely transient failure is long past by then - and the
+// listener's own retry is not counted: `force` resets the start's budget instead.
+export const MAX_MEDIA_FAILURE_RECOVERIES_PER_START = 3;
 
 type RecoveryControllerParams = {
     audioQuality: AudioQualityPreference;
@@ -46,6 +60,11 @@ type RecoveryControllerParams = {
     // The recoveries in flight, one per start of a song (its key and `startOfAskedSong`): one for a
     // start never answers for another, also when the same song was started again.
     onlinePlaybackRecoveryRef: MutableRefObject<Map<string, Promise<OnlineRecovery>>>;
+    // Media-failure recoveries already spent, one count per start of a song (same key as the
+    // recoveries in flight). Lives outside the controller for the same reason the map above does:
+    // the controller is rebuilt whenever the song or its source changes, the budget must not be.
+    // Cleared wholesale once a source actually plays (App.tsx onPlaying, next to the source guard).
+    mediaRecoveryAttemptsRef: MutableRefObject<Map<string, number>>;
     lastAudioRecoverySourceRef: MutableRefObject<string | null>;
     currentOnlineAudioUrlFetchedAtRef: MutableRefObject<number | null>;
     persistLastPlaybackCache: (song: SongResult | null, queue: SongResult[]) => Promise<void>;
@@ -90,6 +109,7 @@ export const createOnlineRecoveryController = ({
     shouldAutoPlayRef,
     pendingResumeTimeRef,
     onlinePlaybackRecoveryRef,
+    mediaRecoveryAttemptsRef,
     lastAudioRecoverySourceRef,
     currentOnlineAudioUrlFetchedAtRef,
     persistLastPlaybackCache,
@@ -122,6 +142,7 @@ export const createOnlineRecoveryController = ({
         shouldAutoplay,
         force = false,
         bypassMediaCache = false,
+        fromMediaFailure = false,
     }: OnlineRecoveryOptions): Promise<OnlineRecovery> => {
         const song = currentSong;
         const audioElement = audioRef.current;
@@ -141,6 +162,19 @@ export const createOnlineRecoveryController = ({
         const pendingRecovery = onlinePlaybackRecoveryRef.current.get(recoveryKey);
         if (pendingRecovery) {
             return pendingRecovery;
+        }
+
+        if (force) {
+            // A retry the listener asked for starts this start's budget over.
+            mediaRecoveryAttemptsRef.current.delete(recoveryKey);
+        } else if (fromMediaFailure) {
+            // The budget answers with a bare refusal, no failure of its own: the caller then hands
+            // the media error itself to the listener, which is the truth of what happened.
+            const attempts = mediaRecoveryAttemptsRef.current.get(recoveryKey) ?? 0;
+            if (attempts >= MAX_MEDIA_FAILURE_RECOVERIES_PER_START) {
+                return { recovered: false };
+            }
+            mediaRecoveryAttemptsRef.current.set(recoveryKey, attempts + 1);
         }
 
         const recoveryTask = (async (): Promise<OnlineRecovery> => {
