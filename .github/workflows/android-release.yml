@@ -178,8 +178,9 @@ jobs:
         # 只断言主 Web 产物已进包；壁纸 Web 层移植后恢复壁纸断言。
         run: |
           set -euo pipefail
-          APK="android/app/build/outputs/apk/release/app-release.apk"
-          test -f "$APK" || { echo "没有产出 APK"; exit 1; }
+          # 未配置签名 secrets 时产物名是 app-release-unsigned.apk，不能写死 app-release.apk。
+          APK="$(ls android/app/build/outputs/apk/release/app-release*.apk 2>/dev/null | head -n 1)"
+          test -n "$APK" && test -f "$APK" || { echo "没有产出 APK"; exit 1; }
           unzip -l "$APK" | grep -E "assets/public/assets/bootstrap-.*\.js" \
             || { echo "Web 产物没进包 —— 大概率是 cap sync 那一步没跑"; exit 1; }
 
@@ -197,7 +198,8 @@ jobs:
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           mkdir -p dist-android
-          cp android/app/build/outputs/apk/release/app-release.apk \
+          # 同 Verify 步：未签名时产物名是 app-release-unsigned.apk，按通配取。
+          cp "$(ls android/app/build/outputs/apk/release/app-release*.apk | head -n 1)" \
              "dist-android/folia-android-${VERSION}-release.apk"
           if [[ -f android/app/build/outputs/bundle/release/app-release.aab ]]; then
             cp android/app/build/outputs/bundle/release/app-release.aab \
