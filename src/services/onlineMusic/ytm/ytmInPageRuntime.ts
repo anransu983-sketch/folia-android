@@ -4,6 +4,7 @@ import { isCapacitorAndroid } from '../../../platform/runtime';
 import { diagnosticLine, formatDiagnosticClock } from '../login/loginDiagnosticReport';
 import { isNativeHttpFetchAvailable, createNativeFetch } from '../../../services/nativeHttpFetch';
 import { requestYtmNativeSignIn, type YtmNativeSession } from './ytmNative';
+import { accountFromYtmAccountsList, ytmSignedInMarkOf } from './ytmAccountsList';
 
 /**
  * 安卓 WebView 里这套页内协议层能不能用。
@@ -116,11 +117,23 @@ const readSignedInUser = async (): Promise<ProviderUser | null> => {
         noteLoginStatusCheck(diagnosticLine`no cookie is held: nobody signed in`);
         return null;
     }
-    let info: any;
+    const yt: any = await getSession();
+    let getInfoError: unknown = null;
     try {
-        const yt: any = await getSession();
-        info = await yt.account.getInfo();
+        const info: any = await yt.account.getInfo();
+        const name = String(info?.account_name ?? info?.channel_handle ?? '');
+        if (name) {
+            const user: ProviderUser = {
+                id: String(info?.channel_id ?? name),
+                nickname: name,
+                avatarUrl: info?.account_photo_url ?? undefined,
+            };
+            noteLoginStatusCheck(diagnosticLine`signed in (id ${user.id ? 'present' : 'missing'}, nickname present)`);
+            return user;
+        }
+        noteLoginStatusCheck(diagnosticLine`account.getInfo named nobody: no account name and no channel handle`);
     } catch (error) {
+        getInfoError = error;
         noteLoginStatusCheck(diagnosticLine`account.getInfo failed: ${messageOf(error)}`);
         console.warn('[Ytm] Could not read the signed-in account', error);
         /*
@@ -128,20 +141,48 @@ const readSignedInUser = async (): Promise<ProviderUser | null> => {
          * 必须抛出去。一律吞成 null 会把一次网络抖动说成「你没登录」，账号当场被清掉。
          */
         if (error instanceof OnlineProviderError && error.code === 'auth-required') return null;
-        throw error;
     }
-    // 拿不到名字就老实说「不知道是谁」—— 返回一个编出来的空账号比不返回更糟。
-    const name = String(info?.account_name ?? info?.channel_handle ?? '');
-    if (!name) {
-        noteLoginStatusCheck(diagnosticLine`account.getInfo named nobody: no account name and no channel handle`);
+    /*
+     * 走到这里有两种情形：getInfo 抛了错（它的解析与平台现在的答复对不上时必抛一个
+     * 没头没脑的 'Page contents not found'，真机上必现），或者它读到了却没读出名字。
+     * 这都不等于没登录 —— 改走桌面端那条拿真账号量过的路：直接要 accounts_list 的
+     * 原始答复，看平台自己标的 logged_in（判据见 ytmAccountsList）。标记说游客才是
+     * 真的没登录；标记说登录了，名字拿不到也算登录，称呼从 handle 退到平台名；
+     * 没有标记就维持先前的结论，不编。
+     */
+    return readUserFromAccountsList(yt, getInfoError);
+};
+
+/** 备用校验：accounts_list 的原始答复说登录了没有、是谁（判据见 ytmAccountsList）。 */
+const readUserFromAccountsList = async (yt: any, getInfoError: unknown): Promise<ProviderUser | null> => {
+    let data: unknown;
+    try {
+        const response: any = await yt.actions.execute('/account/accounts_list', { client: 'YTMUSIC', parse: false });
+        data = response?.data;
+    } catch (error) {
+        noteLoginStatusCheck(diagnosticLine`accounts_list check failed too: ${messageOf(error)}`);
+        console.warn('[Ytm] Could not read the accounts list either', error);
+        // 两条路都断时把先前那条的错交出去（它离用户碰到的现象更近），别编一个结论。
+        throw getInfoError ?? error;
+    }
+    const mark = ytmSignedInMarkOf(data);
+    if (mark === '0') {
+        // 平台明说这次是按游客答的：cookie 没被认下，这才是真的没登录。
+        noteLoginStatusCheck(diagnosticLine`accounts_list answered as a guest (logged_in=0): the sign-in was not taken`);
         return null;
     }
+    if (mark !== '1') {
+        noteLoginStatusCheck(diagnosticLine`accounts_list carried no logged_in mark: cannot tell who is signed in`);
+        if (getInfoError) throw getInfoError;
+        return null;
+    }
+    const account = accountFromYtmAccountsList(data);
     const user: ProviderUser = {
-        id: String(info?.channel_id ?? name),
-        nickname: name,
-        avatarUrl: info?.account_photo_url ?? undefined,
+        id: account?.id || 'ytm',
+        nickname: account?.nickname || 'YouTube Music',
+        avatarUrl: account?.avatarUrl,
     };
-    noteLoginStatusCheck(diagnosticLine`signed in (id ${user.id ? 'present' : 'missing'}, nickname present)`);
+    noteLoginStatusCheck(diagnosticLine`accounts_list confirmed the sign-in (logged_in=1, name ${account?.nickname ? 'present' : 'absent'})`);
     return user;
 };
 
