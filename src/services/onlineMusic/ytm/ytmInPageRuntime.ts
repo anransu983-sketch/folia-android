@@ -4,6 +4,8 @@ import { isCapacitorAndroid } from '../../../platform/runtime';
 import { diagnosticLine, formatDiagnosticClock } from '../login/loginDiagnosticReport';
 import { isNativeHttpFetchAvailable, createNativeFetch } from '../../../services/nativeHttpFetch';
 import { requestYtmNativeSignIn, type YtmNativeSession } from './ytmNative';
+import { getYtmInnerTubeDiagnostics, resolveYtmStreamViaBridge } from './ytmInnerTube';
+import { proxyNativeRemoteAudioUrl } from '../../nativeRemoteAudio';
 import { accountFromYtmAccountsList, ytmSignedInMarkOf } from './ytmAccountsList';
 import { ytmHomepageSignedInOf } from './ytmHomepage';
 import {
@@ -37,7 +39,8 @@ export const isYtmInPageAvailable = (): boolean => isCapacitorAndroid() && isNat
 //
 // 没有登录也能用大半：搜索、专辑、歌单、歌词都是公开接口。要用户自己的歌单才需要 cookie。
 
-const UNSUPPORTED = new Set(['audio', 'playlist_edit', 'list_save', 'list_saved', 'song_like']);
+// audio 不在此列：它不走页内协议层，走原生 InnerTube 桥（见 runYtmInPage 的 audio 分支）。
+const UNSUPPORTED = new Set(['playlist_edit', 'list_save', 'list_saved', 'song_like']);
 
 /** 只建一次：Innertube 建起来要拉一次 innertube 的配置，重复建既慢又没必要。 */
 let sessionPromise: Promise<unknown> | null = null;
@@ -312,6 +315,8 @@ export const getYtmLoginDiagnostics = (): LoginDiagnosticLine[] => {
         lines.push(diagnosticLine`cookie keys: ${names.join(', ')}`);
     }
     lines.push(diagnosticLine`in-page transport: ${isYtmInPageAvailable() ? 'available' : 'not available'}`);
+    // 取流桥的状态与最近一次取流摘要：播放失败时这份报告要能看出卡在哪一级。
+    for (const line of getYtmInnerTubeDiagnostics()) lines.push(diagnosticLine`${line}`);
     lines.push(...loginStatusCheckLines);
     return lines;
 };
@@ -438,6 +443,30 @@ export const runYtmInPage = async (operation: string, params: Record<string, unk
     if (operation === 'web_login_cancel') return {};
     if (UNSUPPORTED.has(operation)) {
         throw new OnlineProviderError('unsupported', `YouTube Music ${operation} is not available on Android yet`, 'ytm');
+    }
+    if (operation === 'audio') {
+        /*
+         * 取流不走页内协议层：WEB 客户端取流要 poToken，页内产不出来。改走原生
+         * InnerTube 桥（冒充官方 App 客户端，见 ytmInnerTube）；登录会话随调用递
+         * 过去，桥只在匿名链撞登录门或要 ultra 时才用它。桥不在时
+         * resolveYtmStreamViaBridge 抛回与原先一致的 unsupported，不静默吞。
+         *
+         * 直链喂播放器前过一遍回环代理（与酷我/网易同一跳）：WebView 的 <audio>
+         * 带 crossOrigin，googlevideo 不下发 CORS 头，直连会被同源检查挡掉；
+         * 且取链与取流同为原生 OkHttp 出口，代理 IP 与直链绑定的 IP 一致。
+         */
+        const id = videoIdOf(params.id);
+        if (!id) throw new OnlineProviderError('invalid-response', 'Invalid track id', 'ytm');
+        const quality = params.quality === 'high' || params.quality === 'ultra' ? params.quality : 'standard';
+        const stream = await resolveYtmStreamViaBridge({ videoId: id, quality, session: signedIn });
+        const url = await proxyNativeRemoteAudioUrl(stream.url);
+        return {
+            url,
+            route: stream.route,
+            ...(stream.itag !== undefined ? { itag: stream.itag } : {}),
+            ...(stream.bitrate !== undefined ? { bitrate: stream.bitrate } : {}),
+            ...(stream.level !== undefined ? { level: stream.level } : {}),
+        };
     }
 
     const yt: any = await getSession();

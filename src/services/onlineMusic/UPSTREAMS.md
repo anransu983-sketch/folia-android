@@ -72,6 +72,7 @@
   - 把 youtubei.js 的 `Platform.shim.eval` 换成在沙箱页面里执行（`ytmApiBridge.cjs`）。
   - 取逐行时间的歌词时冒充手机 App：`MOBILE_CLIENT` 写死 `ANDROID_MUSIC` 7.21.50（同一文件），网页客户端只给纯文本歌词。
   - 网页登录、收藏、列表页、探索页由我们自己的文件读网页客户端的答复（`webSignIn.cjs`、`webSaves.cjs`、`webPages.cjs`、`webExplore.cjs`），目录节点由 `tiles.cjs`、`catalog.cjs` 读。
+  - 安卓取流桥（`android/…/FoliaInnerTubePlugin.java`，仅安卓 fork）：冒充官方 App 客户端取 googlevideo 直链。客户端表（ANDROID_VR / IOS / TVHTML5_SIMPLY_EMBEDDED_PLAYER / ANDROID 的版本号、client id、UA、设备字段）逐字抄 youtubei.js 18.1.0 的 `Constants.CLIENTS`；注意该表只给 WEB 系客户端带了 API key，App 客户端的 key 不在表内，桥里用的是 InnerTube 社区长期公开记录的官方客户端 key（VR 与 ANDROID 同一把），跟 youtubei.js 版本时这两处要一起核。
 - **上游变了怎么跟**：
   - 先看 youtubei.js 和 BgUtils 的发布说明，再在应用里用访客和登录的账号各放一首歌。
   - `test/unit/ytm/` 下的测试都用替身或裁剪过的样本（例如 `ytmTiles.test.ts` 直接把样本交给 `tiles.cjs`、`catalog.cjs`，不跑 youtubei.js），上游改了解析结果它们抓不到。
