@@ -10,7 +10,7 @@ import type { LibraryNavigationContext } from '../../core/suite/suite.contract';
 // B6（骨架）只实现首页（「歌单」页签）与集合页的浏览，按「声明以 entry 为准」只声明做到了的 surface 与动作：
 // 歌手页与账户没声明，照常回退 grid；首页的目录 / 导入等动作、集合页的过滤与变更动作在 B7–B10 补齐。
 // B8 起歌手页也由 bravais 渲染（10 个动作）；B8 当时账户仍回退 grid，B10 起账户也由 bravais 渲染（见下一行）。
-// B9 起首页五个页签都铺墙，声明 grid 的全部 15 个首页动作（见 HOME_ACTIONS）。
+// B9 起首页五个页签都铺墙，声明 grid 的全部 16 个首页动作（见 HOME_ACTIONS）。
 // B10 起账户也由 bravais 渲染（登录与确认在缝里，见 ACCOUNT_ACTIONS），不再回退 grid 的登录弹窗。
 // 本文件只能静态 import react（test/unit/library/suiteEntries.test.ts）：组件与 stage 一律 React.lazy，
 // 没选 bravais 的人不加载它的任何 chunk。
@@ -107,6 +107,7 @@ const HOME_ACTIONS: readonly LibraryHomeActionId[] = [
     'home-import-folder',
     'home-refresh-folders',
     'home-import-playlist',
+    'home-scan-device-music',
     'home-refresh-navidrome',
 ];
 

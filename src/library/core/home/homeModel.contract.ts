@@ -163,6 +163,8 @@ export type LibraryHomeActionsSnapshot = {
     importingFolder: boolean;
     refreshingFolders: boolean;
     importingPlaylist: boolean;
+    /** 扫描设备音乐库（仅安卓原生）。 */
+    scanningDevice?: boolean;
     scan: LibraryHomeScanProgress | null;
 };
 
@@ -198,6 +200,8 @@ export interface LibraryHomePort {
     importFolder(): Promise<number>;
     /** 重扫全部导入根；返回新导入的歌曲数。 */
     resyncAllFolders(): Promise<number>;
+    /** 扫描设备音乐库（MediaStore）。只有安卓原生提供；返回新导入的歌曲数。 */
+    scanDeviceMusic?(): Promise<number>;
     /** 用宿主此刻的曲库匹配 m3u 文件里的路径并建歌单。 */
     importPlaylistFile(file: File): Promise<LibraryHomePlaylistImportResult>;
     /** 重新读取本地曲库。 */
@@ -222,6 +226,8 @@ export interface LibraryHomeActionsController {
     subscribe(listener: () => void): () => void;
     importFolder(): Promise<LibraryHomeActionResult>;
     refreshFolders(): Promise<LibraryHomeActionResult>;
+    /** 扫描设备音乐库（仅安卓原生；端口没有这个方法时返回 unsupported）。 */
+    scanDeviceMusic(): Promise<LibraryHomeActionResult>;
     importPlaylistFile(file: File): Promise<LibraryHomeActionResult>;
     /** 取私人 FM 并从第一首开始播放（取不到歌时什么都不做）。 */
     playPersonalFm(): Promise<LibraryHomeActionResult>;

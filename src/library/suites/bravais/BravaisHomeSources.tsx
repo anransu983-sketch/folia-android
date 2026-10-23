@@ -17,6 +17,7 @@ import type { LibraryDeclaredActions, LibraryHomeActionId } from '../../core/sui
 import type { LibraryAccountController } from '../../core/account/account.contract';
 import { isPersonalFmCard } from '../../core/home/homeCards';
 import { resolveLocalHomeActions, type LocalHomeRow } from '../../core/home/localHomeModel';
+import { isAndroidNativeRuntime } from '../../../services/nativeLocalMusic';
 import { isNavidromeHomeSection, resolveNavidromeCollectionType } from '../../core/home/navidrome/navidromeHomeModel';
 import type { LibraryHomeOnlineList } from '../../core/home/online/useLibraryHomeOnline';
 import { useLibraryHomeLocal, useLocalDirectoryTrees, useLocalHomeBatchConfig } from '../../core/home/useLibraryHomeLocal';
@@ -54,6 +55,7 @@ const LOCAL_ACTION_IDS: Record<string, LibraryHomeActionId> = {
     'import-folder': 'home-import-folder',
     'refresh-folders': 'home-refresh-folders',
     'import-playlist': 'home-import-playlist',
+    'scan-device-music': 'home-scan-device-music',
 };
 
 export const BravaisHomeOnline: React.FC<BravaisHomeSourceCommonProps & {
@@ -143,12 +145,19 @@ export const BravaisHomeLocal: React.FC<BravaisHomeSourceCommonProps & {
         reloadAllTrees: directoryTrees.reloadAll,
     });
     const activeSection = local.activeSection;
-    const localActions = resolveLocalHomeActions(actionState)
-        .filter(action => common.declaredActions.actions.includes(LOCAL_ACTION_IDS[action.id]));
+    /*
+     * 「扫描设备音乐」由这里告诉 core 给不给：系统文件管理器挑不出「设备里已经收录的
+     * 所有音乐」，安卓上只剩设备扫描这条能一次性收进来。core 不做平台判定（那是宿主的事），
+     * 所以按运行时传进去。
+     */
+    const localActions = resolveLocalHomeActions(actionState, {
+        deviceScan: isAndroidNativeRuntime(),
+    }).filter(action => common.declaredActions.actions.includes(LOCAL_ACTION_IDS[action.id]));
     const runAction = (id: string) => {
         if (id === 'import-folder') void homeActions.importFolder();
         else if (id === 'refresh-folders') void homeActions.refreshFolders();
         else if (id === 'import-playlist') playlistFileInputRef.current?.click();
+        else if (id === 'scan-device-music') void homeActions.scanDeviceMusic();
     };
     const runActionRef = useRef(runAction);
     runActionRef.current = runAction;
@@ -199,8 +208,13 @@ export const BravaisHomeLocal: React.FC<BravaisHomeSourceCommonProps & {
         const section = sectionsRef.current.sections.find(candidate => candidate.key === key);
         if (section) sectionsRef.current.setActiveRow(section.row);
     }, []);
-    const menuKey = localActions.map(action => `${action.id}:${action.labelKey}:${action.disabled}`).join('|');
-    const menu = useMemo<BravaisSeamMenuItem[]>(() => localActions.map(action => ({
+    // 空库那一屏只留「导入文件夹」与「扫描设备音乐」—— 与网格空库那一屏同一组：
+    // 没有根可刷的「刷新」先收起来。
+    const menuActions = isEmptyLibrary
+        ? localActions.filter(action => action.id === 'import-folder' || action.id === 'scan-device-music')
+        : localActions;
+    const menuKey = menuActions.map(action => `${action.id}:${action.labelKey}:${action.disabled}`).join('|');
+    const menu = useMemo<BravaisSeamMenuItem[]>(() => menuActions.map(action => ({
         id: `home-${action.id}`,
         label: t(action.labelKey),
         disabled: action.disabled,

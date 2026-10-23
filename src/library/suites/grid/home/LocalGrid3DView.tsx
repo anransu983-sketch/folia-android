@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FileUp, FolderOpen, Loader2, Music, ListMusic, User, Disc3, RefreshCw } from 'lucide-react';
+import { FileUp, FolderOpen, Loader2, Music, ListMusic, User, Disc3, RefreshCw, Smartphone } from 'lucide-react';
 import DesktopGrid3DSurface, { DesktopGrid3DAction } from './DesktopGrid3DSurface';
 import { LocalPlaylist, LocalSong, Theme } from '../../../../types';
 import type { GridViewCollectionDescriptor } from '../../../../components/app/home/gridViewCollectionAdapters';
@@ -14,6 +14,7 @@ import type { LocalHomeRow, LocalHomeSectionKey } from '../../../core/home/local
 import { resolveLocalHomeActions } from '../../../core/home/localHomeModel';
 import { useLibraryHomeLocal, useLocalDirectoryTrees, useLocalHomeBatchConfig } from '../../../core/home/useLibraryHomeLocal';
 import { useLibraryHomeActions } from '../../../core/home/useLibraryHomeActions';
+import { isAndroidNativeRuntime } from '../../../../services/nativeLocalMusic';
 import { useLibraryHomeListRegistration } from '../../../core/home/useLibraryHomeSurfaceRegistration';
 
 // src/library/suites/grid/home/LocalGrid3DView.tsx
@@ -32,6 +33,8 @@ const ACTION_ICONS: Record<string, React.ReactNode> = {
     'import-folder': <FolderOpen size={13} />,
     'refresh-folders': <RefreshCw size={13} />,
     'import-playlist': <FileUp size={13} />,
+    // 安卓原生才有「扫描设备音乐库」。
+    'scan-device-music': <Smartphone size={13} />,
 };
 
 interface LocalGrid3DViewProps {
@@ -95,7 +98,7 @@ export const LocalGrid3DView: React.FC<LocalGrid3DViewProps> = ({
     const playlistFileInputRef = useRef<HTMLInputElement>(null);
     const directoryTrees = useLocalDirectoryTrees(directoryTreesResource, localSongs);
     const local = useLibraryHomeLocal({ localSongs, localPlaylists, catalog: localLibraryCatalog, activeRow });
-    const { snapshot: actionState, importBusy } = useLibraryHomeActions(homeActions);
+    const { snapshot: actionState } = useLibraryHomeActions(homeActions);
 
     const [localFolderIndex, setLocalFolderIndex] = useDebouncedFocusSync(focusedFolderIndex, setFocusedFolderIndex);
     const [localAlbumIndex, setLocalAlbumIndex] = useDebouncedFocusSync(focusedAlbumIndex, setFocusedAlbumIndex);
@@ -134,9 +137,13 @@ export const LocalGrid3DView: React.FC<LocalGrid3DViewProps> = ({
         if (id === 'import-folder') void homeActions.importFolder();
         else if (id === 'refresh-folders') void homeActions.refreshFolders();
         else if (id === 'import-playlist') playlistFileInputRef.current?.click();
+        else if (id === 'scan-device-music') void homeActions.scanDeviceMusic();
     };
 
-    const localActions = resolveLocalHomeActions(actionState);
+    // 安卓原生才有「扫描设备音乐库」：core 不做平台判定，由这里按运行时告诉它。
+    const localActions = resolveLocalHomeActions(actionState, {
+        deviceScan: isAndroidNativeRuntime(),
+    });
     const actions: DesktopGrid3DAction[] = localActions.map(action => ({
         id: action.id,
         label: t(action.labelKey),
@@ -178,19 +185,34 @@ export const LocalGrid3DView: React.FC<LocalGrid3DViewProps> = ({
     });
 
     if (isEmptyLibrary) {
-        const scanning = Boolean(actionState.scan?.active);
+        /*
+         * 空库那一屏把「导入文件夹」与「扫描设备音乐」一起摆出来。
+         *
+         * 别的入口都挂在下面那排动作里，而空库在这里就早退了 —— 于是安卓上必须先导入一个
+         * 文件夹、脱离空态，才看得见扫歌按钮。对一台刚装好、库里一首歌都没有的手机来说，
+         * 这个顺序正好把最该点的那颗藏了起来。标签 / pending / disabled 全由 core 给，
+         * 这里不再自己拼一套状态。
+         */
+        const emptyActions = localActions.filter(
+            action => action.id === 'import-folder' || action.id === 'scan-device-music',
+        );
         return (
             <div className="w-full h-full flex flex-col items-center justify-center gap-4 opacity-60">
                 <Music size={64} />
                 <p className="text-lg">{t('localMusic.noLocalMusic')}</p>
-                <button
-                    onClick={() => void homeActions.importFolder()}
-                    disabled={importBusy}
-                    className="px-6 py-3 rounded-full transition-colors text-sm flex items-center gap-2 bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    {importBusy ? <Loader2 size={16} className="animate-spin" /> : <FolderOpen size={16} />}
-                    {scanning ? t('options.scanning') : actionState.importingFolder ? t('localMusic.importing') : t('localMusic.importFolder')}
-                </button>
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                    {emptyActions.map(action => (
+                        <button
+                            key={action.id}
+                            onClick={() => runAction(action.id)}
+                            disabled={action.disabled}
+                            className="px-6 py-3 rounded-full transition-colors text-sm flex items-center gap-2 bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {action.pending ? <Loader2 size={16} className="animate-spin" /> : ACTION_ICONS[action.id]}
+                            {t(action.labelKey)}
+                        </button>
+                    ))}
+                </div>
             </div>
         );
     }

@@ -41,6 +41,7 @@ const GRID_HOME_ACTIONS: readonly LibraryHomeActionId[] = [
     'home-import-folder',
     'home-refresh-folders',
     'home-import-playlist',
+    'home-scan-device-music',
     'home-refresh-navidrome',
 ];
 

@@ -99,6 +99,7 @@ export type LibraryActionId =
  * | directory-rescan-root / directory-remove-root / directory-clear-ignore | rescan-root / remove-root / clear-ignore |
  * | directory-manage-hidden / directory-toggle-hidden | manage-hidden / toggle-hidden |
  * | home-import-folder / home-refresh-folders / home-import-playlist | 本地列表的 import-folder / refresh-folders / import-playlist |
+ * | home-scan-device-music | 本地列表的 scan-device-music（安卓原生才有的「扫描设备音乐库」，见 core/model/localHomeModel） |
  * | home-refresh-navidrome | Navidrome 列表的 refresh |
  */
 export type LibraryHomeActionId =
@@ -116,6 +117,7 @@ export type LibraryHomeActionId =
     | 'home-import-folder'
     | 'home-refresh-folders'
     | 'home-import-playlist'
+    | 'home-scan-device-music'
     | 'home-refresh-navidrome';
 
 /**

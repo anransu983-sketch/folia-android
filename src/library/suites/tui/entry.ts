@@ -59,6 +59,7 @@ const tui: LibrarySuiteManifest = {
                     'home-import-folder',
                     'home-refresh-folders',
                     'home-import-playlist',
+                    'home-scan-device-music',
                     'home-refresh-navidrome',
                 ],
             },

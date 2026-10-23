@@ -109,6 +109,29 @@ export const createLibraryHomeActions = (port: LibraryHomePort): LibraryHomeActi
             }
         },
 
+        scanDeviceMusic: async () => {
+            if (isHomeImportBusy(snapshot)) return BUSY;
+            // ⚠ 宿主没接这条能力时要**说出来**。以前这里是静默 return：按钮点了没反应、
+            // 不申请权限、也不提示，看着就像界面坏了（安卓上「扫描设备音乐」就是这样
+            // 静了很久 —— 能力没接进 port，而失败又不吭声）。
+            if (typeof port.scanDeviceMusic !== 'function') {
+                port.notify({ kind: 'alert', message: { key: 'localMusic.scanDeviceUnavailable' } });
+                return UNSUPPORTED;
+            }
+            patch({ scanningDevice: true });
+            try {
+                const imported = await port.scanDeviceMusic();
+                if (imported > 0) void port.refreshLocalSongs();
+                return OK;
+            } catch (error) {
+                console.error('[LibraryHome] Failed to scan device music:', error);
+                port.notify({ kind: 'alert', message: { key: 'localMusic.scanDeviceFailed' } });
+                return FAILED;
+            } finally {
+                patch({ scanningDevice: false });
+            }
+        },
+
         importPlaylistFile: async (file) => {
             if (snapshot.importingPlaylist) return BUSY;
             patch({ importingPlaylist: true });
