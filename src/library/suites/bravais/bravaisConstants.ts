@@ -52,17 +52,31 @@ export const BRAVAIS_CULL_EDGE_MARGIN = 160;
  */
 export const BRAVAIS_OVERSCAN_NARROW = 1100;
 export const BRAVAIS_CULL_EDGE_MARGIN_NARROW = 420;
+/**
+ * 性能模式（usePerformanceSettingsStore，只在安卓生效）下的预渲染与重裁余量：都收小，拖动时
+ * 少渲染一圈磁贴换帧率。窄屏 560 约是可见世界宽度（约 660）的 0.85 倍 —— 快速甩动时边缘可能
+ * 短暂露白，这是性能模式明码标价的取舍，默认档仍是上面的 1100 / 420。余量必须小于预渲染
+ * （相机 padding = 两者之差，要为正），两档都满足。
+ */
+export const BRAVAIS_OVERSCAN_PERFORMANCE = 280;
+export const BRAVAIS_OVERSCAN_NARROW_PERFORMANCE = 560;
+export const BRAVAIS_CULL_EDGE_MARGIN_PERFORMANCE = 120;
+export const BRAVAIS_CULL_EDGE_MARGIN_NARROW_PERFORMANCE = 200;
 
 /** 缩放分档里窄屏一档的宽度断点，预渲染分档与它对齐。 */
 export const BRAVAIS_NARROW_SCALE_PX = 640;
 
-/** 按视口宽度取预渲染距离：窄屏用扩过的一档，其余是原值。 */
-export const getBravaisOverscan = (viewportWidth: number) => (
-    viewportWidth < BRAVAIS_NARROW_SCALE_PX ? BRAVAIS_OVERSCAN_NARROW : BRAVAIS_OVERSCAN
+/** 按视口宽度取预渲染距离：窄屏用扩过的一档，其余是原值；性能模式再换成收小的一档。 */
+export const getBravaisOverscan = (viewportWidth: number, performanceMode = false) => (
+    performanceMode
+        ? viewportWidth < BRAVAIS_NARROW_SCALE_PX ? BRAVAIS_OVERSCAN_NARROW_PERFORMANCE : BRAVAIS_OVERSCAN_PERFORMANCE
+        : viewportWidth < BRAVAIS_NARROW_SCALE_PX ? BRAVAIS_OVERSCAN_NARROW : BRAVAIS_OVERSCAN
 );
-/** 按视口宽度取重裁余量：窄屏用扩过的一档，其余是原值。 */
-export const getBravaisCullEdgeMargin = (viewportWidth: number) => (
-    viewportWidth < BRAVAIS_NARROW_SCALE_PX ? BRAVAIS_CULL_EDGE_MARGIN_NARROW : BRAVAIS_CULL_EDGE_MARGIN
+/** 按视口宽度取重裁余量：窄屏用扩过的一档，其余是原值；性能模式再换成收小的一档。 */
+export const getBravaisCullEdgeMargin = (viewportWidth: number, performanceMode = false) => (
+    performanceMode
+        ? viewportWidth < BRAVAIS_NARROW_SCALE_PX ? BRAVAIS_CULL_EDGE_MARGIN_NARROW_PERFORMANCE : BRAVAIS_CULL_EDGE_MARGIN_PERFORMANCE
+        : viewportWidth < BRAVAIS_NARROW_SCALE_PX ? BRAVAIS_CULL_EDGE_MARGIN_NARROW : BRAVAIS_CULL_EDGE_MARGIN
 );
 
 /**

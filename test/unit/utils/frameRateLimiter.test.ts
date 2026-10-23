@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cancelUncappedAnimationFrame, createFrameRateLimitedRaf, installGlobalVisualizerFrameRateLimiter, parseVisualizerFrameRate, requestUncappedAnimationFrame, setGlobalVisualizerFrameRate, shouldProcessFrameAtRate } from '../../../src/utils/frameRateLimiter';
+import { cancelUncappedAnimationFrame, createFrameRateLimitedRaf, installGlobalVisualizerFrameRateLimiter, parseVisualizerFrameRate, requestUncappedAnimationFrame, resolveEffectiveVisualizerFrameRate, setGlobalVisualizerFrameRate, setPerformanceFrameRateCap, shouldProcessFrameAtRate } from '../../../src/utils/frameRateLimiter';
 
 // test/unit/utils/frameRateLimiter.test.ts
 
@@ -228,6 +228,53 @@ describe('frameRateLimiter', () => {
             expect(uncapped).toBe(12);
             expect(capped).toBe(6);
         } finally {
+            setGlobalVisualizerFrameRate('off');
+            Object.defineProperty(globalThis, 'window', {
+                configurable: true,
+                value: previousWindow,
+            });
+        }
+    });
+
+    it('resolves the effective frame rate under the performance cap', () => {
+        // Cap off: the user's own choice passes through untouched.
+        expect(resolveEffectiveVisualizerFrameRate('off', false)).toBe('off');
+        expect(resolveEffectiveVisualizerFrameRate(120, false)).toBe(120);
+        expect(resolveEffectiveVisualizerFrameRate(60, false)).toBe(60);
+        // Cap on: anything above the lowest existing tier (and "no limit") is held at it; 60 stays 60.
+        expect(resolveEffectiveVisualizerFrameRate('off', true)).toBe(60);
+        expect(resolveEffectiveVisualizerFrameRate(120, true)).toBe(60);
+        expect(resolveEffectiveVisualizerFrameRate(90, true)).toBe(60);
+        expect(resolveEffectiveVisualizerFrameRate(60, true)).toBe(60);
+    });
+
+    it('holds the user frame rate under the performance cap and gives it back when the cap lifts', () => {
+        const previousWindow = (globalThis as { window?: Window; }).window;
+        const originalRequestAnimationFrame = () => 1;
+        const originalCancelAnimationFrame = () => undefined;
+        Object.defineProperty(globalThis, 'window', {
+            configurable: true,
+            value: {
+                requestAnimationFrame: originalRequestAnimationFrame,
+                cancelAnimationFrame: originalCancelAnimationFrame,
+                localStorage: { getItem: () => null },
+            },
+        });
+
+        try {
+            // The user turns their own limit off; then performance mode caps at 60 anyway,
+            // so the limiter stays installed while the cap is on...
+            setGlobalVisualizerFrameRate('off');
+            expect(globalThis.window.requestAnimationFrame).toBe(originalRequestAnimationFrame);
+            setPerformanceFrameRateCap(true);
+            expect(globalThis.window.requestAnimationFrame).not.toBe(originalRequestAnimationFrame);
+
+            // ...and lifting the cap restores the user's own "off", not the cap's 60.
+            setPerformanceFrameRateCap(false);
+            expect(globalThis.window.requestAnimationFrame).toBe(originalRequestAnimationFrame);
+            expect(globalThis.window.cancelAnimationFrame).toBe(originalCancelAnimationFrame);
+        } finally {
+            setPerformanceFrameRateCap(false);
             setGlobalVisualizerFrameRate('off');
             Object.defineProperty(globalThis, 'window', {
                 configurable: true,

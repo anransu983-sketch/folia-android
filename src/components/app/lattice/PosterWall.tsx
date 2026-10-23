@@ -29,6 +29,7 @@ import { useDevicePixelRatio } from '../../../hooks/useMediaQuery';
 import { useReducedMotionFor } from '../../../hooks/useReducedMotionFor';
 import { EXPANSION_SPAN } from '../../wall/blockTemplates';
 import { useLatticeSettingsStore } from '../../../stores/useLatticeSettingsStore';
+import { usePerformanceMode } from '../../../stores/usePerformanceSettingsStore';
 import { resolveWallHandoffRole, useWallHandoffStore } from '../../../stores/useWallHandoffStore';
 import { useLatticeWallHandoff } from './useLatticeWallHandoff';
 import { wallIsLeftForPage } from './wallLayer';
@@ -59,6 +60,9 @@ type PosterWallProps = {
 const CELL_SIZE = 128;
 const GAP = 8;
 const OVERSCAN = 500;
+// 性能模式（usePerformanceSettingsStore，仅安卓）下的预渲染距离：收到约半屏，拖动时少渲染一圈磁贴换帧率；
+// 甩动时边缘可能短暂露白，是这个模式明码标价的取舍，默认仍是上面的 500。
+const OVERSCAN_PERFORMANCE = 260;
 // How much of the flight path may stay rendered while the camera travels, in viewports.
 const MAX_RESERVED_VIEWPORTS = 3;
 // Metro tile landing: the wave starts at the top-left of the viewport and runs down the diagonal.
@@ -125,6 +129,9 @@ export default function PosterWall({
     // width breakpoints, so this settles after the first measure and then only moves on a resize.
     const [cameraScale, setCameraScale] = useState(() => cameraRef.current.scale);
     const reducedMotion = useReducedMotionFor('lattice');
+    // 性能模式（仅安卓）：预渲染距离取小档，绘制与拖动预留都按它走。
+    const performanceMode = usePerformanceMode();
+    const overscan = performanceMode ? OVERSCAN_PERFORMANCE : OVERSCAN;
     // 从资料库墙翻牌交接进来（或淡入交叉）：入场由交接代替，不跑抬起落下的波次。
     const entranceSuppressed = useWallHandoffStore(state => resolveWallHandoffRole(state.session, 'lattice') === 'in');
     const autoFocusOnSongChange = useLatticeSettingsStore(state => state.autoFocusOnSongChange);
@@ -252,12 +259,12 @@ export default function PosterWall({
     // The posters, and on the explore wall the headings, that are drawn.
     const drawn = useMemo(() => {
         if (!measured || !opened) return { posters: [], headings: [] };
-        const visible = wallLayout.near(bounds, OVERSCAN);
+        const visible = wallLayout.near(bounds, overscan);
         if (!activePoster || visible.posters.some(instance => instance.instanceId === activePoster.instance.instanceId)) {
             return visible;
         }
         return { posters: [...visible.posters, activePoster.instance], headings: visible.headings };
-    }, [activePoster, bounds, wallLayout, measured, opened]);
+    }, [activePoster, bounds, wallLayout, measured, opened, overscan]);
     const instances = drawn.posters;
 
     // World point the viewport is centred on; both the keyboard seed and playback follow need it.
@@ -276,7 +283,7 @@ export default function PosterWall({
         stopPan,
         containerRef,
         reducedMotion,
-        overscan: OVERSCAN,
+        overscan,
         bounds,
         cameraRef,
         getWorldBounds,

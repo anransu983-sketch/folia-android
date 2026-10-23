@@ -8,6 +8,7 @@ import { LIBRARY_WALL_PORTRAIT_QUERY, resolveLibraryWallSeamHorizontal } from '.
 import { useReducedMotionFor } from '../../../hooks/useReducedMotionFor';
 import { useLatticeSettingsStore } from '../../../stores/useLatticeSettingsStore';
 import { useLibraryWallLookStore } from '../../../stores/useLibraryWallLookStore';
+import { usePerformanceMode } from '../../../stores/usePerformanceSettingsStore';
 import type { LibrarySuiteStageProps } from '../../core/suite/suite.contract';
 import { BRAVAIS_METRICS, BRAVAIS_NARROW_SCALE_PX, BRAVAIS_SEAM_ACRYLIC_BLUR, getBravaisOverscan } from './bravaisConstants';
 import { WALL_REFLOW_CONTROLS_REVEAL } from '../../../components/wall/wallReflowMotion';
@@ -139,6 +140,8 @@ const BravaisStage: React.FC<LibrarySuiteStageProps> = ({
     const { wallLook, seamLook } = useBravaisWallLook(reportPlayerOcclusion, reportPlayerBackdrop);
     const view = useBravaisViewport(rootRef);
     const reducedMotion = useReducedMotionFor('lattice');
+    // 性能模式（仅安卓）：slot 的预渲染范围取小档，拖动时少渲染一圈磁贴。相机侧的同名取值走 readPerformanceMode。
+    const performanceMode = usePerformanceMode();
     // B11：换层的翻牌 / 波次按「降低动态效果」降级成淡入淡出（lattice 或 collectionMorph，见 bravaisMotion）。
     const reducedTransitions = useBravaisReducedTransitions();
     const devicePixelRatio = useDevicePixelRatio();
@@ -295,8 +298,8 @@ const BravaisStage: React.FC<LibrarySuiteStageProps> = ({
     refreshFiniteRangeRef.current = refreshFiniteRange;
     const shape = display?.shape ?? BRAVAIS_BLOCK_SHAPE;
     const slots = useMemo<readonly WallSlot[]>(() => (
-        camera.bounds ? collectShapeSlots(shape, expandBounds(camera.bounds, getBravaisOverscan(view?.width ?? BRAVAIS_NARROW_SCALE_PX)), FLIP_MAX_TILES) : []
-    ), [camera.bounds, shape, view?.width]);
+        camera.bounds ? collectShapeSlots(shape, expandBounds(camera.bounds, getBravaisOverscan(view?.width ?? BRAVAIS_NARROW_SCALE_PX, performanceMode)), FLIP_MAX_TILES) : []
+    ), [camera.bounds, shape, view?.width, performanceMode]);
     slotsRef.current = slots;
     // B11 transitions.beforePush：宿主压栈之前，没经过墙上磁贴的打开用键盘焦点所在的 slot 当起点磁贴。
     const getFocusedSlotKey = useCallback(() => focus.focusedRef.current, [focus.focusedRef]);

@@ -405,3 +405,6 @@
 }
 
 :root[data-reduce-motion~='lattice'] .bravais-root.is-loading .lattice-poster.bravais-tile-face.is-wall { animation: none; }
+
+/* 性能模式（安卓，data-folia-performance-mode 由 usePerformanceSettingsStore 同步）：呼吸是整墙磁贴一起动的无限动画，一并停掉。 */
+:root[data-folia-performance-mode] .bravais-root.is-loading .lattice-poster.bravais-tile-face.is-wall { animation: none; }

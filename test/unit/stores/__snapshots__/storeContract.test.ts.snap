@@ -108,6 +108,7 @@ exports[`store contract > keeps every localStorage key the stores read or write 
   "open_player_on_launch",
   "partita_tuning",
   "pendolo_tuning",
+  "performance_mode",
   "playback_entry_view",
   "playback_entry_view_chosen",
   "player_bottom_bar_offset",

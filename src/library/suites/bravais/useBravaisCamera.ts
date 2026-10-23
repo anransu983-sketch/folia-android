@@ -11,6 +11,7 @@ import {
     type WallViewCenter,
 } from '../../../components/wall/wallView';
 import type { WallCameraRange } from '../../../components/wall/finiteWall';
+import { readPerformanceMode } from '../../../stores/usePerformanceSettingsStore';
 import { BRAVAIS_CAMERA_TWEEN_S, BRAVAIS_NARROW_SCALE_PX, getBravaisCullEdgeMargin, getBravaisOverscan } from './bravaisConstants';
 import { rubberBand } from './bravaisFiniteWall';
 import { computeBravaisFrame, getTiltReach } from './bravaisFrame';
@@ -55,10 +56,10 @@ export const getVisibleWorldBounds = (state: BravaisFrameState): Bounds | null =
     };
 };
 
-/** 可见范围离已裁剪范围的边缘还剩不到一截 overscan 时才需要重新裁剪。余量按视口宽度分档（窄屏更大）。 */
-export const needsRecull = (visible: Bounds, culled: Bounds | null, viewportWidth: number) => {
+/** 可见范围离已裁剪范围的边缘还剩不到一截 overscan 时才需要重新裁剪。余量按视口宽度分档（窄屏更大）；性能模式下两数都取小档。 */
+export const needsRecull = (visible: Bounds, culled: Bounds | null, viewportWidth: number, performanceMode = false) => {
     if (!culled) return true;
-    const padding = getBravaisOverscan(viewportWidth) - getBravaisCullEdgeMargin(viewportWidth);
+    const padding = getBravaisOverscan(viewportWidth, performanceMode) - getBravaisCullEdgeMargin(viewportWidth, performanceMode);
     return visible.left < culled.left - padding
         || visible.right > culled.right + padding
         || visible.top < culled.top - padding
@@ -109,7 +110,7 @@ export const useBravaisCamera = ({
         syncPointerCamera();
         renderFrame();
         const visible = getVisibleWorldBounds(frameRef.current);
-        if (visible && (forceRecull || needsRecull(visible, boundsRef.current, frameRef.current.view?.width ?? BRAVAIS_NARROW_SCALE_PX))) scheduleRecull();
+        if (visible && (forceRecull || needsRecull(visible, boundsRef.current, frameRef.current.view?.width ?? BRAVAIS_NARROW_SCALE_PX, readPerformanceMode()))) scheduleRecull();
     }, [frameRef, renderFrame, scheduleRecull, syncPointerCamera]);
 
     /**
@@ -119,7 +120,7 @@ export const useBravaisCamera = ({
      */
     const checkCull = useCallback((force = false) => {
         const visible = getVisibleWorldBounds(frameRef.current);
-        if (visible && (force || needsRecull(visible, boundsRef.current, frameRef.current.view?.width ?? BRAVAIS_NARROW_SCALE_PX))) scheduleRecull();
+        if (visible && (force || needsRecull(visible, boundsRef.current, frameRef.current.view?.width ?? BRAVAIS_NARROW_SCALE_PX, readPerformanceMode()))) scheduleRecull();
     }, [frameRef, scheduleRecull]);
 
     const stopCamera = useCallback(() => {
@@ -216,7 +217,7 @@ export const useBravaisCamera = ({
         stopPan: stopCamera,
         containerRef: fieldRef,
         reducedMotion,
-        overscan: getBravaisOverscan(frameRef.current.view?.width ?? BRAVAIS_NARROW_SCALE_PX),
+        overscan: getBravaisOverscan(frameRef.current.view?.width ?? BRAVAIS_NARROW_SCALE_PX, readPerformanceMode()),
         bounds: bounds ?? { left: 0, right: 0, top: 0, bottom: 0 },
         cameraRef,
         getWorldBounds,

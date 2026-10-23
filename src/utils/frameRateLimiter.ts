@@ -21,6 +21,8 @@ type WindowWithVisualizerFrameRateLimiter = Window & {
 
 export const VISUALIZER_FRAME_RATE_OPTIONS = [60, 90, 120] as const satisfies VisualizerFrameRate[];
 export const VISUALIZER_FRAME_RATE_STORAGE_KEY = 'visualizer_frame_rate';
+/** 性能模式（usePerformanceSettingsStore）给动画帧率定的上限：已有档位里最低的一档。 */
+export const PERFORMANCE_FRAME_RATE_CAP: VisualizerFrameRate = 60;
 const FRAME_INTERVAL_TOLERANCE_MS = 1;
 
 export const isVisualizerFrameRate = (value: unknown): value is VisualizerFrameRate => (
@@ -137,11 +139,27 @@ export const createFrameRateLimitedRaf = (
 
 let installedLimiter: FrameRateLimitedRaf | null = null;
 
-export const setGlobalVisualizerFrameRate = (frameRate: VisualizerFrameRate) => {
-    if (typeof window === 'undefined') {
-        return;
-    }
+// 性能模式的上限与用户自己选的帧率是两件事：用户的值原样记在 requestedFrameRate 里，
+// 闸上真正生效的是 resolveEffectiveVisualizerFrameRate 合出来的结果。上限关掉，用户的值
+// 一个档位不动地回来；上限开着时用户改设置也只改 requested，生效值仍被压住。
+let performanceCapEnabled = false;
+let requestedFrameRate: VisualizerFrameRate | null = null;
 
+/** 用户要的帧率与性能上限合出来的实际帧率：上限关着时原样，上限开着时超过上限的（包括「不限制」）压到上限。 */
+export const resolveEffectiveVisualizerFrameRate = (
+    requested: VisualizerFrameRate,
+    capEnabled: boolean,
+): VisualizerFrameRate => {
+    if (!capEnabled) {
+        return requested;
+    }
+    if (requested === 'off') {
+        return PERFORMANCE_FRAME_RATE_CAP;
+    }
+    return Math.min(requested, PERFORMANCE_FRAME_RATE_CAP) as VisualizerFrameRate;
+};
+
+const applyGlobalVisualizerFrameRate = (frameRate: VisualizerFrameRate) => {
     if (frameRate === 'off') {
         restoreGlobalVisualizerFrameRateLimiter();
         return;
@@ -153,6 +171,31 @@ export const setGlobalVisualizerFrameRate = (frameRate: VisualizerFrameRate) => 
     }
 
     installedLimiter.setFrameRate(frameRate);
+};
+
+export const setGlobalVisualizerFrameRate = (frameRate: VisualizerFrameRate) => {
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    requestedFrameRate = frameRate;
+    applyGlobalVisualizerFrameRate(resolveEffectiveVisualizerFrameRate(frameRate, performanceCapEnabled));
+};
+
+/**
+ * 性能模式开关动画帧率上限。由 usePerformanceSettingsStore 在开关变化（和模块加载）时调：
+ * 这里只记上限开没开，再按记住的用户帧率重新合一次生效值。
+ */
+export const setPerformanceFrameRateCap = (enabled: boolean) => {
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    performanceCapEnabled = enabled;
+    const requested = requestedFrameRate
+        ?? parseVisualizerFrameRate(window.localStorage.getItem(VISUALIZER_FRAME_RATE_STORAGE_KEY));
+    requestedFrameRate = requested;
+    applyGlobalVisualizerFrameRate(resolveEffectiveVisualizerFrameRate(requested, enabled));
 };
 
 // Asks for the display's next frame, past the cap. For work that has to land in the same frame as
@@ -191,13 +234,17 @@ export const installGlobalVisualizerFrameRateLimiter = (overrideFrameRate?: Visu
 
     const initialFrameRate = overrideFrameRate
         ?? parseVisualizerFrameRate(window.localStorage.getItem(VISUALIZER_FRAME_RATE_STORAGE_KEY));
-    if (initialFrameRate === 'off') {
+    // 经 setGlobalVisualizerFrameRate / setPerformanceFrameRateCap 进来时，用户的值已经记下了，
+    // 这里的 initialFrameRate 是合过上限的生效值，不能拿它把用户的值盖掉。
+    requestedFrameRate ??= initialFrameRate;
+    const effectiveFrameRate = resolveEffectiveVisualizerFrameRate(initialFrameRate, performanceCapEnabled);
+    if (effectiveFrameRate === 'off') {
         restoreGlobalVisualizerFrameRateLimiter();
         return;
     }
 
     if (installedLimiter) {
-        installedLimiter.setFrameRate(initialFrameRate);
+        installedLimiter.setFrameRate(effectiveFrameRate);
         return;
     }
 
@@ -210,7 +257,7 @@ export const installGlobalVisualizerFrameRateLimiter = (overrideFrameRate?: Visu
     const nativeCancelAnimationFrame: CancelAnimationFrameFn = (handle) => {
         frameWindow.__foliaNativeCancelAnimationFrame?.call(window, handle);
     };
-    installedLimiter = createFrameRateLimitedRaf(nativeRequestAnimationFrame, nativeCancelAnimationFrame, initialFrameRate);
+    installedLimiter = createFrameRateLimitedRaf(nativeRequestAnimationFrame, nativeCancelAnimationFrame, effectiveFrameRate);
 
     window.requestAnimationFrame = installedLimiter.requestAnimationFrame;
     window.cancelAnimationFrame = installedLimiter.cancelAnimationFrame;
