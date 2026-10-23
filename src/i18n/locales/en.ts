@@ -2989,7 +2989,8 @@ export default {
     "geminiApiKey": "Gemini API Key",
     "aiApiKeySavedPlaceholder": "Saved (leave blank to keep it)",
     "aiApiKeySavedDesc": "The key is stored encrypted on this device and is not shown again. Enter a new key and save to replace it.",
-    "aiApiKeyEndpointMismatchDesc": "The saved key is only sent to {{endpoint}}. Enter the key again to use a different address.",
+    "aiApiKeyEndpointMismatchDesc": "The saved key was for {{endpoint}} and can't be used at a different address. Enter a new key and save.",
+    "aiApiKeyOtherProviderDesc": "The saved key was for {{provider}} and can't be used after switching providers. Enter a new key and save.",
     "aiApiKeyClear": "Clear",
     "openaiApiTemperature": "Temperature",
     "openaiApiStream": "Streaming",
@@ -3413,6 +3414,33 @@ export default {
       "qqPrivatePlaylists": {
         "title": "Private QQ Music Playlists",
         "description": "When signed in, your own private playlists now load their songs, with real paging. Self-hosted backends must run qq-music-api 3.1.2 or later; older backends fall back automatically, and a playlist that cannot be read now says it is not public instead of silently showing as empty."
+      }
+    },
+    "v0_7_22": {
+      "intro": "Welcome to 0.7.22, the Sparkle Update—a major release. It adds Qishui Music; brings Hanabi, a Japanese fireworks lyric style; lets you choose which styles the per-song random style picks from; gives the desktop app global playback shortcuts; and lets AI settings pick a provider and model directly.",
+      "qishui": {
+        "title": "Qishui Music",
+        "description": "Qishui Music arrives on desktop: sign in from the login window by scanning with Douyin. Search, play (standard quality), read word-synced lyrics and artists' top songs, and open your own playlists and \"Recently played on Qishui\"; the recommendation feed and scene stations play as Personal FM, and the scene cards on the home screen start playing in one tap. You can like songs, add and remove songs in playlists you created, and use Dislike in Personal FM. Songs without a directly playable source can't be played, and browsing albums, creating playlists and saving playlists aren't supported yet. Local songs matched to a Qishui song can fetch its lyrics too."
+      },
+      "hanabi": {
+        "title": "Hanabi",
+        "description": "A new lyric style in the look of a Japanese lyric PV: each line enters character by character on blocks of color, firework-like ornaments bloom along the text, and between shots the whole scene spins and rises with the launching fireworks, with film strips, stickers and tape as collage decor and a glow that lifts during the chorus. Fireworks, text, decor and colors are adjustable in the style settings, with quality tiers; in Smart beat mode a firework bursts in the night sky on every beat and the camera pushes in with it."
+      },
+      "randomStyles": {
+        "title": "Choose Your Random Styles",
+        "description": "The lyric style picker gains Random: tick some or all built-in styles to form a random pool, and each song switches to one of them, never the same twice in a row, each with its own saved settings. From the player panel you can redraw a style for the current song or edit the pool; the pool is included in config import, export and sync."
+      },
+      "globalShortcuts": {
+        "title": "Global Playback Shortcuts",
+        "description": "Desktop gains Shortcuts → Global shortcuts: control playback even when Folia isn't in front, with Ctrl+Alt+Shift (Control+Option+Shift on macOS) plus a letter or digit. Bind play/pause, previous, next, volume up and down, mute, repeat and shuffle, as well as commands provided by mods; combinations taken by another app are marked. Under native Wayland, one button registers them with your desktop environment, where you assign the keys. The command palette also gains play/pause and volume up/down."
+      },
+      "aiProviders": {
+        "title": "AI Providers and Models",
+        "description": "AI settings on desktop now let you pick a provider: Gemini, DeepSeek, Xiaomi MiMo, Alibaba Cloud Qwen, Tencent Cloud TokenHub, OpenAI, Anthropic, Kimi, Zhipu GLM, or a custom compatible endpoint. Built-in providers need no URL; enter a key to fetch the model list, choose from a dropdown, and start with a recommended model prefilled. Thinking, temperature and similar parameters are handled per provider and model, and retired models are flagged. After switching songs, an unfinished AI theme from the previous song no longer lands on the new one."
+      },
+      "moreDetails": {
+        "title": "More Improvements",
+        "description": "Sign-ins on every platform are no longer cleared after a restart just because the network or server was down. Smart beat mode gains an \"Analysed only\" setting, and its main switch moves to a new Global page in the lyric style window; local and Navidrome songs now get automix transition analysis too; local scanning supports DSD (.dsf and .dff). Windows gains a Render GPU setting, and Performance & motion adds Background throttling (off by default), which holds the lyric animation while the window is minimized or hidden. Bravais' info bar can be automatic, vertical or horizontal, and its Explore wall now includes recently played. The mod API moves up to Folium 1.7."
       }
     },
     "v0_7_21": {

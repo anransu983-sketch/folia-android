@@ -5244,9 +5244,14 @@ function pollRemoteControlPointer() {
 }
 
 // Dragged past the outer left edge of the screens, the idle look's cover would be cut off. On
-// Windows the move can be held there as it happens; elsewhere a move cannot be refused.
+// Windows the move can be held there as it happens; elsewhere a move cannot be refused. With the
+// cover collapsed only the card in use is held, so it can reach the edge.
 function keepRemoteControlCoverOnScreen(win, event, newBounds) {
-  const x = clampRemoteControlWindowX(newBounds, screen.getAllDisplays().map(display => display.bounds));
+  const x = clampRemoteControlWindowX(
+    newBounds,
+    screen.getAllDisplays().map(display => display.bounds),
+    remoteControlExpandCoverEnabled,
+  );
   if (x !== newBounds.x) {
     // Windows then keeps the window where this puts it, and the drag slides along the edge.
     event.preventDefault();
@@ -5254,6 +5259,20 @@ function keepRemoteControlCoverOnScreen(win, event, newBounds) {
     // min === max === REMOTE_CONTROL_WINDOW_WIDTH/HEIGHT). Stating it on every move keeps the
     // window the size the page is laid out to, instead of leaving the platform to re-derive it.
     win.setBounds({ x, y: newBounds.y, width: REMOTE_CONTROL_WINDOW_WIDTH, height: REMOTE_CONTROL_WINDOW_HEIGHT });
+  }
+}
+
+// Switching the cover back on where the card was dragged to the edge: the strip left of the card
+// is off screen, so the window steps right until the cover fits, as a drag would have held it.
+function bringRemoteControlCoverOnScreen(win) {
+  if (process.platform !== 'win32' || !win || win.isDestroyed()) {
+    return;
+  }
+
+  const bounds = win.getBounds();
+  const x = clampRemoteControlWindowX(bounds, screen.getAllDisplays().map(display => display.bounds), true);
+  if (x !== bounds.x) {
+    win.setBounds({ x, y: bounds.y, width: REMOTE_CONTROL_WINDOW_WIDTH, height: REMOTE_CONTROL_WINDOW_HEIGHT });
   }
 }
 
@@ -6509,6 +6528,9 @@ ipcMain.handle('save-settings', (event, key, value) => {
 
   if (key === REMOTE_CONTROL_EXPAND_COVER_SETTING_KEY) {
     remoteControlExpandCoverEnabled = Boolean(nextValue);
+    if (remoteControlExpandCoverEnabled) {
+      bringRemoteControlCoverOnScreen(remoteControlWindow);
+    }
     applyRemoteControlWindowPresentation(remoteControlWindow);
   }
 
