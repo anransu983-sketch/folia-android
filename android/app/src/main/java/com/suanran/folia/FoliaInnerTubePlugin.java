@@ -142,7 +142,7 @@ public class FoliaInnerTubePlugin extends Plugin {
     private final ReentrantLock resolveLock = new ReentrantLock();
     /** 匿名 visitorData 缓存（只存内存，冷启重取）；登录那份与 cookie 同源，每次登录链现换、不缓存。 */
     private volatile String anonymousVisitorData;
-    /** 最近一次出口自检的结论，给 status()/诊断看：ok / failed(...) / not run。 */
+    /** 最近一次出口自检的结论，给 status()/诊断看：0-0 ok; full-shape … / failed(...) / not run。 */
     private volatile String lastEgress = "not run";
 
     @PluginMethod
@@ -461,7 +461,7 @@ public class FoliaInnerTubePlugin extends Plugin {
     private JSObject streamOf(ClientSpec client, Attempt attempt, boolean signedInRun) {
         JSONObject format = attempt.format;
         String url = format.optString("url", "");
-        String egressProblem = checkEgress(url);
+        String egressProblem = checkEgress(client, url);
         if (egressProblem != null) {
             attempt.detail = egressProblem;
             return null;
@@ -490,13 +490,18 @@ public class FoliaInnerTubePlugin extends Plugin {
      * 取链的请求与取流的请求若出口 IP 不一致，googlevideo 按链上绑的 IP 回 403——
      * 这一步在原生栈里先撞一遍，撞死了就换下一级客户端，而不是把死链交给播放器。
      * 返回 null = 通过；否则是失败结论（进 attempts 与 status 的 egress 行）。
+     *
+     * 0-0 通过后追加一次对照探针（probeFullShape）：用与取流相同的形态（铸链客户端
+     * UA + 整段 Range）再问同一条链，只为把「整段取流是否被拒」这一事实记进
+     * lastEgress。**对照结果不改变本方法的成败语义**：resolve 仍以 0-0 的结论为准，
+     * 探针失败也照样放行，失败形态只出现在 status/诊断的 egress 行里。
      */
-    private String checkEgress(String url) {
+    private String checkEgress(ClientSpec client, String url) {
         Request request = new Request.Builder().url(url).header("Range", "bytes=0-0").build();
         try (Response response = http.newCall(request).execute()) {
             String type = response.header("Content-Type", "");
             if ((response.code() == 200 || response.code() == 206) && !type.startsWith("text/")) {
-                lastEgress = "ok";
+                lastEgress = "0-0 ok; full-shape " + probeFullShape(client, url);
                 return null;
             }
             lastEgress = "failed (HTTP " + response.code() + ")";
@@ -504,6 +509,27 @@ public class FoliaInnerTubePlugin extends Plugin {
         } catch (IOException | RuntimeException error) {
             lastEgress = "failed (" + error.getClass().getSimpleName() + ")";
             return "egress: " + error.getClass().getSimpleName();
+        }
+    }
+
+    /**
+     * 对照探针：以取流的真实形态问同一条直链——UA 用铸链客户端的 userAgent、
+     * Range 用 bytes=0-（整段）。只读响应头（状态码 + Content-Type）即关闭断开，
+     * 不下载正文。返回值只是给 lastEgress 的事实字符串：ok / HTTP <code> / failed (...)。
+     */
+    private String probeFullShape(ClientSpec client, String url) {
+        Request request = new Request.Builder().url(url)
+            .header("User-Agent", client.userAgent)
+            .header("Range", "bytes=0-")
+            .build();
+        try (Response response = http.newCall(request).execute()) {
+            String type = response.header("Content-Type", "");
+            if ((response.code() == 200 || response.code() == 206) && !type.startsWith("text/")) {
+                return "ok";
+            }
+            return "HTTP " + response.code();
+        } catch (IOException | RuntimeException error) {
+            return "failed (" + error.getClass().getSimpleName() + ")";
         }
     }
 
