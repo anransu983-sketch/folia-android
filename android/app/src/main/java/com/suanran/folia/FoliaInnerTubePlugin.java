@@ -10,6 +10,7 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
@@ -412,6 +413,9 @@ public class FoliaInnerTubePlugin extends Plugin {
             }
         } catch (IOException error) {
             return Attempt.failed(client.key, "network", error.getClass().getSimpleName());
+        } catch (JSONException error) {
+            // 安卓的 org.json 是受检异常：组请求体与读答复的形状错归 invalid，与下面的解析错同类。
+            return Attempt.failed(client.key, "invalid", error.getClass().getSimpleName());
         } catch (RuntimeException error) {
             // 含 org.json 的解析错：答复形状不是桥读得懂的那种。
             return Attempt.failed(client.key, "invalid", error.getClass().getSimpleName());
@@ -654,7 +658,7 @@ public class FoliaInnerTubePlugin extends Plugin {
                 String visitor = context != null ? context.optString("visitorData", "") : "";
                 return visitor.isEmpty() ? null : visitor;
             }
-        } catch (IOException | RuntimeException error) {
+        } catch (IOException | JSONException | RuntimeException error) {
             Log.w(TAG, "visitor data could not be fetched", error);
             return null;
         }
