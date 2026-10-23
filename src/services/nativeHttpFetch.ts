@@ -105,7 +105,20 @@ export const createNativeFetch = (timeoutMs: number = NATIVE_HTTP_TIMEOUT_MS): t
         const request = typeof Request !== 'undefined' && input instanceof Request ? input : null;
         const url = request?.url ?? String(input);
         const method = (init?.method || request?.method || 'GET').toUpperCase();
-        const headers = new Headers(request?.headers || init?.headers || {});
+        /*
+         * 头的合并按 fetch 的规矩：init 里给的头盖过 Request 自带的头，**不能**写成
+         * `request?.headers || init?.headers`。有的调用方（如页内协议层的 HTTP 客户端）
+         * 是「先按调用方的头建一个 Request、再把补齐的头放在 fetch 的 init 里」这么调的：
+         * 它算出来的登录凭据头（Authorization、Cookie）只在 init 那一份里，而 Request
+         * 的头是个恒为真值的对象 —— 旧写法每次都把 init 那一份整份丢掉，请求以未登录
+         * 的身份发出去，对方回一张游客的答复，登录校验必然失败（真出过一次，必现）。
+         */
+        const headers = new Headers(request?.headers || undefined);
+        if (init?.headers) {
+            new Headers(init.headers).forEach((value, name) => {
+                headers.set(name, value);
+            });
+        }
 
         let bodyText = '';
         const rawBody = init?.body ?? null;
