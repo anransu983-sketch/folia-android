@@ -46,11 +46,12 @@ const loadRuntime = async () => {
 
 const VIDEO_ID = 'dQw4w9WgXcQ';
 const STREAM_URL = 'https://rr1---sn-example.googlevideo.com/videoplayback?expire=1999999999&itag=251';
+const BRIDGE_UA = 'VR client UA (fixture)';
 
 beforeEach(() => {
     vi.clearAllMocks();
     mocks.bridge.mockResolvedValue({
-        url: STREAM_URL, route: 'android_vr', itag: 251, bitrate: 128000, level: 'high',
+        url: STREAM_URL, route: 'android_vr', userAgent: BRIDGE_UA, itag: 251, bitrate: 128000, level: 'high',
     });
     mocks.proxy.mockImplementation(async (url: string) => `proxied:${url}`);
 });
@@ -61,8 +62,32 @@ describe('runYtmInPage audio', () => {
         const answer = await runtime.runYtmInPage('audio', { id: VIDEO_ID, quality: 'high' });
         expect(answer).toEqual({
             url: `proxied:${STREAM_URL}`, route: 'android_vr', itag: 251, bitrate: 128000, level: 'high',
+            srcForm: 'direct', srcUa: true,
         });
-        expect(mocks.proxy).toHaveBeenCalledWith(STREAM_URL);
+        expect(mocks.proxy).toHaveBeenCalledWith(STREAM_URL, { headers: { 'User-Agent': BRIDGE_UA } });
+    });
+
+    it('sends the bridge UA to the proxy: googlevideo refuses a fetch under another UA', async () => {
+        const runtime = await loadRuntime();
+        await runtime.runYtmInPage('audio', { id: VIDEO_ID, quality: 'high' });
+        expect(mocks.proxy).toHaveBeenCalledWith(STREAM_URL, { headers: { 'User-Agent': BRIDGE_UA } });
+    });
+
+    it('falls back to no headers when the bridge names no UA (an older bridge answer)', async () => {
+        mocks.bridge.mockResolvedValue({ url: STREAM_URL, route: 'android_vr', itag: 251, level: 'high' });
+        const runtime = await loadRuntime();
+        const answer = await runtime.runYtmInPage('audio', { id: VIDEO_ID, quality: 'high' }) as Record<string, unknown>;
+        expect(mocks.proxy).toHaveBeenCalledWith(STREAM_URL, {});
+        expect('srcUa' in answer).toBe(false);
+    });
+
+    it('names the final src form and host for the provider log, never the address itself', async () => {
+        mocks.proxy.mockImplementation(async () => 'http://127.0.0.1:47788/remote-audio/dG9rZW4');
+        const runtime = await loadRuntime();
+        const answer = await runtime.runYtmInPage('audio', { id: VIDEO_ID, quality: 'high' }) as Record<string, unknown>;
+        expect(answer.srcForm).toBe('loopback');
+        expect(answer.srcHost).toBe('127.0.0.1:47788');
+        expect(JSON.stringify(answer)).not.toContain('expire=1999999999');
     });
 
     it('asks the bridge for the song, signed out when nobody signed in', async () => {

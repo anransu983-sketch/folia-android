@@ -38,7 +38,8 @@ beforeEach(() => {
     mocks.isPluginAvailable.mockReturnValue(true);
     mocks.status.mockResolvedValue({ ready: true, visitorData: 'held', egress: 'ok (egress verified: HTTP 206, audio/webm)' });
     mocks.resolveStream.mockResolvedValue({
-        ok: true, stream: { url: STREAM_URL, route: 'android_vr', itag: 251, bitrate: 128000, level: 'high' },
+        ok: true,
+        stream: { url: STREAM_URL, route: 'android_vr', userAgent: 'VR client UA (fixture)', itag: 251, bitrate: 128000, level: 'high' },
     });
 });
 
@@ -46,10 +47,20 @@ describe('resolveYtmStreamViaBridge', () => {
     it('hands a successful answer back in the provider audio shape, session included', async () => {
         const bridge = await loadBridge();
         const stream = await bridge.resolveYtmStreamViaBridge({ videoId: 'dQw4w9WgXcQ', quality: 'high', session: SESSION });
-        expect(stream).toEqual({ url: STREAM_URL, route: 'android_vr', itag: 251, bitrate: 128000, level: 'high' });
+        expect(stream).toEqual({
+            url: STREAM_URL, route: 'android_vr', userAgent: 'VR client UA (fixture)', itag: 251, bitrate: 128000, level: 'high',
+        });
         expect(mocks.resolveStream).toHaveBeenCalledWith({
             videoId: 'dQw4w9WgXcQ', quality: 'high', allowSignedIn: true, session: SESSION,
         });
+    });
+
+    it('tolerates an answer without a userAgent (an older bridge), leaving the field out', async () => {
+        mocks.resolveStream.mockResolvedValue({ ok: true, stream: { url: STREAM_URL, route: 'android_vr', itag: 251 } });
+        const bridge = await loadBridge();
+        const stream = await bridge.resolveYtmStreamViaBridge({ videoId: 'dQw4w9WgXcQ', quality: 'standard', session: null });
+        expect(stream.userAgent).toBeUndefined();
+        expect('userAgent' in stream).toBe(false);
     });
 
     it('sends no session key at all when nobody is signed in', async () => {

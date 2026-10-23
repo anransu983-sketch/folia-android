@@ -65,7 +65,7 @@ describe('handleOnlineMediaFailure', () => {
     ] as const)('does nothing more once the refresh is %s', async (_label, outcome) => {
         const deps = setup([outcome]);
         await handle(audioWithError(3), streamUrl, true, deps);
-        expect(deps.recover).toHaveBeenCalledWith({ failedSrc: streamUrl, resumeAt: 42, autoplay: true, bypassMediaCache: false });
+        expect(deps.recover).toHaveBeenCalledWith({ failedSrc: streamUrl, resumeAt: 42, autoplay: true, bypassMediaCache: false, fromMediaFailure: true });
         expect(deps.skip).not.toHaveBeenCalled();
     });
 
@@ -96,7 +96,7 @@ describe('handleOnlineMediaFailure', () => {
         await handle(audioWithError(3, 10), 'blob:folia/cached-audio', true, deps);
         expect(isCachedSongAudioDistrusted(song)).toBe(true);
         expect(deps.recover).toHaveBeenCalledWith({
-            failedSrc: 'blob:folia/cached-audio', resumeAt: 10, autoplay: true, bypassMediaCache: true,
+            failedSrc: 'blob:folia/cached-audio', resumeAt: 10, autoplay: true, bypassMediaCache: true, fromMediaFailure: true,
         });
         expect(deps.skip).not.toHaveBeenCalled();
     });

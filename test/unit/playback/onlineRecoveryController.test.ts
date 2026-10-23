@@ -19,6 +19,7 @@ vi.mock('@/stores/usePlaybackStore', () => ({
 import {
     createOnlineRecoveryController,
     getOnlineRecoveryKey,
+    MAX_MEDIA_FAILURE_RECOVERIES_PER_START,
     type OnlineRecovery,
 } from '@/components/app/playback/restore/createOnlineRecoveryController';
 import { onlineFailureOf } from '@/services/onlineMusic/failure/onlineFailureCase';
@@ -56,11 +57,17 @@ const streamUrl = (vkey: string) =>
 const createController = (audioSrc: string, {
     currentSong = song,
     recoveryRef = ref(new Map<string, Promise<OnlineRecovery>>()),
+    attemptsRef = ref(new Map<string, number>()),
     blobUrlRef = ref<string | null>(null),
+    ask = true,
 }: {
     currentSong?: SongResult;
     recoveryRef?: { current: Map<string, Promise<OnlineRecovery>> };
+    attemptsRef?: { current: Map<string, number> };
     blobUrlRef?: { current: string | null };
+    // App rebuilds the controller whenever the song or its source changes, without asking again:
+    // a rebuilt controller for the same start is made with ask: false.
+    ask?: boolean;
 } = {}) => {
     const lastAudioRecoverySourceRef = ref<string | null>(null);
     const audioRef = ref<HTMLAudioElement | null>({ currentTime: 0, currentSrc: audioSrc } as HTMLAudioElement);
@@ -69,7 +76,7 @@ const createController = (audioSrc: string, {
     const persistLastPlaybackCache = vi.fn(async () => undefined);
 
     // The recovery works for the song the player was last asked for.
-    askForSong(currentSong);
+    if (ask) askForSong(currentSong);
     const controller = createOnlineRecoveryController({
         audioQuality: 'high',
         currentSong,
@@ -79,6 +86,7 @@ const createController = (audioSrc: string, {
         shouldAutoPlayRef,
         pendingResumeTimeRef,
         onlinePlaybackRecoveryRef: recoveryRef,
+        mediaRecoveryAttemptsRef: attemptsRef,
         lastAudioRecoverySourceRef,
         currentOnlineAudioUrlFetchedAtRef: ref<number | null>(null),
         persistLastPlaybackCache,
@@ -87,7 +95,7 @@ const createController = (audioSrc: string, {
     });
 
     return {
-        controller, lastAudioRecoverySourceRef, shouldAutoPlayRef, recoveryRef,
+        controller, lastAudioRecoverySourceRef, shouldAutoPlayRef, recoveryRef, attemptsRef,
         blobUrlRef, pendingResumeTimeRef, persistLastPlaybackCache,
     };
 };
@@ -376,5 +384,103 @@ describe('online playback recovery results', () => {
             .resolves.toEqual({ recovered: false, failure });
         await expect(controller.recoverOnlinePlaybackSource({ failedSrc: streamUrl('two'), autoplay: true }))
             .resolves.toEqual({ recovered: false });
+    });
+});
+
+describe('media failure recovery budget', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        loadAudioSourceMock.mockReset();
+    });
+
+    // A platform that hands out a wholly different address on every ask (YouTube Music's bridge:
+    // a fresh googlevideo link, wrapped in a fresh loopback token, per resolve): neither origin
+    // nor path repeats, so the per-file guard above can never match two rounds together.
+    const reminted = (n: number) => `https://cdn-${n}.example.test/track-${n}.mp3`;
+    const countingLoader = () => {
+        let minted = 0;
+        loadAudioSourceMock.mockImplementation(async () => {
+            minted += 1;
+            return { kind: 'ok', audioSrc: reminted(minted) };
+        });
+    };
+    const failOnce = (controller: ReturnType<typeof createController>['controller'], failedSrc: string) => (
+        controller.recoverOnlinePlaybackSource({ failedSrc, autoplay: true, fromMediaFailure: true })
+    );
+
+    it('stops refreshing a start whose every new address fails the same way', async () => {
+        const { controller } = createController(reminted(0));
+        countingLoader();
+
+        let failedSrc = reminted(0);
+        for (let round = 1; round <= MAX_MEDIA_FAILURE_RECOVERIES_PER_START; round += 1) {
+            await expect(failOnce(controller, failedSrc)).resolves.toEqual({ recovered: true });
+            failedSrc = reminted(round);
+        }
+        // The budget is spent: no further ask, and no failure of the recovery's own - the caller
+        // (handleOnlineMediaFailure) then hands the media error itself to the listener.
+        await expect(failOnce(controller, failedSrc)).resolves.toEqual({ recovered: false });
+        expect(loadAudioSourceMock).toHaveBeenCalledTimes(MAX_MEDIA_FAILURE_RECOVERIES_PER_START);
+    });
+
+    it('never counts refreshes that are not answering a media error', async () => {
+        const { controller } = createController(reminted(0));
+        countingLoader();
+
+        // The transport's proactive refreshes (TTL, a play() that threw) carry no fromMediaFailure:
+        // they are not refused however often they come.
+        let failedSrc = reminted(0);
+        for (let round = 1; round <= MAX_MEDIA_FAILURE_RECOVERIES_PER_START + 2; round += 1) {
+            await expect(controller.recoverOnlinePlaybackSource({ failedSrc, autoplay: true }))
+                .resolves.toEqual({ recovered: true });
+            failedSrc = reminted(round);
+        }
+        expect(loadAudioSourceMock).toHaveBeenCalledTimes(MAX_MEDIA_FAILURE_RECOVERIES_PER_START + 2);
+    });
+
+    it('a forced retry resets the budget of the start', async () => {
+        const { controller } = createController(reminted(0));
+        countingLoader();
+
+        let failedSrc = reminted(0);
+        for (let round = 1; round <= MAX_MEDIA_FAILURE_RECOVERIES_PER_START; round += 1) {
+            await failOnce(controller, failedSrc);
+            failedSrc = reminted(round);
+        }
+        await expect(failOnce(controller, failedSrc)).resolves.toEqual({ recovered: false });
+
+        // The listener presses retry: forced, so it goes - and the start's budget starts over.
+        await expect(controller.recoverOnlinePlaybackSource({ failedSrc, autoplay: true, force: true }))
+            .resolves.toEqual({ recovered: true });
+        await expect(failOnce(controller, reminted(90))).resolves.toEqual({ recovered: true });
+    });
+
+    it('gives a replay of the same song a budget of its own', async () => {
+        const { controller } = createController(reminted(0));
+        countingLoader();
+
+        let failedSrc = reminted(0);
+        for (let round = 1; round <= MAX_MEDIA_FAILURE_RECOVERIES_PER_START; round += 1) {
+            await failOnce(controller, failedSrc);
+            failedSrc = reminted(round);
+        }
+        await expect(failOnce(controller, failedSrc)).resolves.toEqual({ recovered: false });
+
+        askForSong(song); // the same song, played again: another start
+        await expect(failOnce(controller, failedSrc)).resolves.toEqual({ recovered: true });
+    });
+
+    it('keeps counting across controllers rebuilt over the same refs, as App rebuilds them', async () => {
+        const attemptsRef = ref(new Map<string, number>());
+        const first = createController(reminted(0), { attemptsRef });
+        countingLoader();
+
+        await failOnce(first.controller, reminted(0));
+        await failOnce(first.controller, reminted(1));
+        // The refreshed source rebuilt the controller (App useMemo on the source), same start.
+        const second = createController(reminted(2), { attemptsRef, ask: false });
+        await expect(failOnce(second.controller, reminted(2))).resolves.toEqual({ recovered: true });
+        await expect(failOnce(second.controller, reminted(3))).resolves.toEqual({ recovered: false });
+        expect(loadAudioSourceMock).toHaveBeenCalledTimes(MAX_MEDIA_FAILURE_RECOVERIES_PER_START);
     });
 });
