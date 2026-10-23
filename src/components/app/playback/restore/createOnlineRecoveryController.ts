@@ -42,9 +42,9 @@ export interface OnlineRecoveryOptions {
 // How many times one start of a song may have its address asked for again after a media error
 // before the recovery gives up and the failure is handed to the listener (skipAfterPlaybackFailure).
 // The per-file guard below cannot see every loop: a platform whose address is re-minted on every
-// ask (YouTube Music's bridge hands out a fresh googlevideo link per resolve, so even the loopback
-// token wrapping it differs every round) presents a brand-new key each time, and without a budget
-// the error -> refresh -> error cycle ran about once a second forever, never surfacing the failure.
+// ask (a fresh signed link per ask, so even the loopback token wrapping it differs every round)
+// presents a brand-new key each time, and without a budget the error -> refresh -> error cycle
+// ran about once a second forever, never surfacing the failure.
 // Three is deliberately small - a genuinely transient failure is long past by then - and the
 // listener's own retry is not counted: `force` resets the start's budget instead.
 export const MAX_MEDIA_FAILURE_RECOVERIES_PER_START = 3;
