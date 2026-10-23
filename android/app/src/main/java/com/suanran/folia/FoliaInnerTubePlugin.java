@@ -424,7 +424,10 @@ public class FoliaInnerTubePlugin extends Plugin {
         String status = playability != null ? playability.optString("status", "") : "";
         String reason = playability != null ? playability.optString("reason", "") : "";
         if (status.isEmpty()) return Attempt.failed(client.key, "invalid", "no playability status");
-        if ("LOGIN_REQUIRED".equals(status)) return Attempt.failed(client.key, "login", firstWord(reason, status));
+        // 登录门与年龄门同类（设计稿 §4.4）：都是「带上会话再问一次」能解的门，记 login 触发登录支线。
+        if ("LOGIN_REQUIRED".equals(status) || "AGE_CHECK_REQUIRED".equals(status)) {
+            return Attempt.failed(client.key, "login", firstWord(reason, status));
+        }
         if (reason.toLowerCase(java.util.Locale.ROOT).contains("country")) {
             return Attempt.failed(client.key, "region", firstWord(reason, status));
         }

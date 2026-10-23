@@ -39,9 +39,11 @@ export type YtmBridgeStream = {
     level?: AudioQualityPreference;
 };
 
+// 桥的答复形状是设计稿 §4.2 的契约：成功在 stream 里、失败在 error 里，别拍平——
+// 拍平读会把每个成功都读成「形状不对」。
 type YtmBridgeResolveAnswer =
-    | { ok: true; url: string; route: string; itag?: number; bitrate?: number; level?: string; attempts?: YtmBridgeAttempt[] }
-    | { ok: false; code: string; message: string; attempts?: YtmBridgeAttempt[] };
+    | { ok: true; stream: { url: string; route: string; itag?: number; bitrate?: number; level?: string } }
+    | { ok: false; error: { code: string; message: string; attempts?: YtmBridgeAttempt[] } };
 
 type YtmBridgeStatus = { ready: boolean; visitorData: string; egress: string };
 
@@ -139,6 +141,7 @@ export const resolveYtmStreamViaBridge = async (input: {
         throw new OnlineProviderError('unsupported', 'YouTube Music audio is not available on Android yet', 'ytm');
     }
     await refreshBridgeStatus();
+    const startedAt = Date.now();
     let answer: YtmBridgeResolveAnswer;
     try {
         answer = await FoliaInnerTube.resolveStream({
@@ -156,23 +159,29 @@ export const resolveYtmStreamViaBridge = async (input: {
         throw new OnlineProviderError('invalid-response', 'The InnerTube bridge answered in a shape that is not readable', 'ytm');
     }
     if (!answer.ok) {
-        lastResolveLine = `last resolve: failed (${answer.code})${attemptsText(answer.attempts) ? ` — ${attemptsText(answer.attempts)}` : ''}`;
+        const error = answer.error;
+        if (!error || typeof error.code !== 'string' || typeof error.message !== 'string') {
+            lastResolveLine = 'last resolve: malformed bridge failure';
+            throw new OnlineProviderError('invalid-response', 'The InnerTube bridge answered in a shape that is not readable', 'ytm');
+        }
+        lastResolveLine = `last resolve: failed (${error.code}), ${Date.now() - startedAt}ms${attemptsText(error.attempts) ? ` — ${attemptsText(error.attempts)}` : ''}`;
         console.warn('[Ytm] InnerTube bridge could not resolve a stream', lastResolveLine);
-        throw bridgeFailure(answer);
+        throw bridgeFailure(error);
     }
-    if (typeof answer.url !== 'string' || !answer.url.startsWith('https://') || typeof answer.route !== 'string' || !answer.route) {
+    const stream = answer.stream;
+    if (!stream || typeof stream.url !== 'string' || !stream.url.startsWith('https://') || typeof stream.route !== 'string' || !stream.route) {
         lastResolveLine = 'last resolve: bridge claimed success without a stream address';
         throw new OnlineProviderError('invalid-response', 'The InnerTube bridge answered in a shape that is not readable', 'ytm');
     }
-    lastResolveLine = `last resolve: ok via ${answer.route}${answer.itag ? ` (itag ${answer.itag})` : ''}`;
-    console.log(`[Ytm] InnerTube bridge resolved a stream via ${answer.route}${answer.itag ? ` (itag ${answer.itag})` : ''}`);
+    lastResolveLine = `last resolve: ok via ${stream.route}${stream.itag ? ` (itag ${stream.itag})` : ''}, ${Date.now() - startedAt}ms`;
+    console.log(`[Ytm] InnerTube bridge resolved a stream via ${stream.route}${stream.itag ? ` (itag ${stream.itag})` : ''}`);
     return {
-        url: answer.url,
-        route: answer.route,
-        ...(typeof answer.itag === 'number' ? { itag: answer.itag } : {}),
-        ...(typeof answer.bitrate === 'number' ? { bitrate: answer.bitrate } : {}),
-        ...(answer.level === 'standard' || answer.level === 'high' || answer.level === 'ultra'
-            ? { level: answer.level }
+        url: stream.url,
+        route: stream.route,
+        ...(typeof stream.itag === 'number' ? { itag: stream.itag } : {}),
+        ...(typeof stream.bitrate === 'number' ? { bitrate: stream.bitrate } : {}),
+        ...(stream.level === 'standard' || stream.level === 'high' || stream.level === 'ultra'
+            ? { level: stream.level }
             : {}),
     };
 };

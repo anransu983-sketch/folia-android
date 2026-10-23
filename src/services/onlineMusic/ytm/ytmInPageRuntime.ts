@@ -451,7 +451,7 @@ export const runYtmInPage = async (operation: string, params: Record<string, unk
          * 过去，桥只在匿名链撞登录门或要 ultra 时才用它。桥不在时
          * resolveYtmStreamViaBridge 抛回与原先一致的 unsupported，不静默吞。
          *
-         * 直链喂播放器前过一遍回环代理（与酷我/网易同一跳）：WebView 的 <audio>
+         * 直链喂播放器前过一遍回环代理（远端音频的既有做法）：WebView 的 <audio>
          * 带 crossOrigin，googlevideo 不下发 CORS 头，直连会被同源检查挡掉；
          * 且取链与取流同为原生 OkHttp 出口，代理 IP 与直链绑定的 IP 一致。
          */
