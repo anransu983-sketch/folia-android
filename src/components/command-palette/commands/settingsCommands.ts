@@ -213,6 +213,15 @@ export const settingsCommands: CommandPaletteCommand[] = [
             return true;
         },
     },
+    createToggleCommand(
+        'performance-mode-toggle',
+        'settings',
+        'Performance mode',
+        'Toggle the phone performance mode (lighter effects, steadier frame rate)',
+        ['performance', 'fps', 'frame rate', '性能模式', '流畅', '帧率'],
+        context => context.settings.togglePerformanceMode(),
+        { platform: ['capacitor-android'] },
+    ),
     createSettingsAnchorCommand('settings-discord-presence', 'Discord playback status', 'Open Discord Rich Presence settings', ['discord', 'rich presence', 'discord presence', 'playing status', '播放状态', 'discord状态', 'discordzhuangtai', 'dc'], 'discordRichPresence'),
     createSettingsAnchorCommand('settings-obs-browser-source', 'OBS browser source', 'Open OBS browser source settings', ['obs', 'browser source', 'live source', '直播源', '浏览器源'], 'obsBrowserSource'),
     createToggleCommand(

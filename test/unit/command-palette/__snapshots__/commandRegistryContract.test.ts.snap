@@ -118,6 +118,7 @@ exports[`command palette registry contract > keeps the registered command order 
   "transition-mode-crossfade",
   "transition-mode-automix",
   "transition-performance-toggle",
+  "performance-mode-toggle",
   "settings-discord-presence",
   "settings-obs-browser-source",
   "obs-toggle-keep-main-window-animation",

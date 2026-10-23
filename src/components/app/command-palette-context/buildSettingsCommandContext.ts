@@ -11,6 +11,7 @@ import { useLyricSettingsStore } from '../../../stores/useLyricSettingsStore';
 import { useGridViewSettingsStore } from '../../../stores/useGridViewSettingsStore';
 import { useLatticeSettingsStore } from '../../../stores/useLatticeSettingsStore';
 import { useMotionSettingsStore } from '../../../stores/useMotionSettingsStore';
+import { usePerformanceSettingsStore } from '../../../stores/usePerformanceSettingsStore';
 import { usePlaybackEntryViewStore } from '../../../stores/usePlaybackEntryViewStore';
 import { hasLibrarySuiteChoice } from '../../../library/registry';
 import { chooseLibrarySuite, getActiveLibrarySuiteId, listLibrarySuiteOptions } from '../../../library/app/librarySuiteChoice';
@@ -256,5 +257,9 @@ export const buildSettingsCommandContext = (
             !useAutomixSettingsStore.getState().transitionPerformance,
         ),
         canUseTransitionPerformance: deps.canUseTransitionPerformance,
+        togglePerformanceMode: () => {
+            const performance = usePerformanceSettingsStore.getState();
+            performance.handleTogglePerformanceMode(!performance.performanceMode);
+        },
     };
 };

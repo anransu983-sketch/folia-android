@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import ConfirmDialog from '../../../shared/ConfirmDialog';
+import { isCapacitorAndroid } from '../../../../platform/runtime';
 import { MOTION_SURFACE_IDS, useMotionSettingsStore, type MotionSurfaceId } from '../../../../stores/useMotionSettingsStore';
 import { useDesktopSettingsStore } from '../../../../stores/useDesktopSettingsStore';
+import { usePerformanceSettingsStore } from '../../../../stores/usePerformanceSettingsStore';
 import { usePlayerChromeSettingsStore } from '../../../../stores/usePlayerChromeSettingsStore';
 import { useThemeSettingsStore } from '../../../../stores/useThemeSettingsStore';
 import { useVisualizerSettingsStore } from '../../../../stores/useVisualizerSettingsStore';
@@ -38,6 +40,8 @@ const O = {
     nativeBlur: option(PERFORMANCE, 'enablePlayerPageNativeBlur', 'options.enablePlayerPageNativeBlur'),
     frameRate: option(PERFORMANCE, 'visualizerFrameRate', 'options.visualizerFrameRate'),
     frameRateValue: option(PERFORMANCE, 'visualizerFrameRateValue', 'options.visualizerFrameRateValue'),
+    // Only drawn in the Android app: the trade it makes (fewer wall tiles, no blur, a 60 FPS cap) has no desktop meaning.
+    performanceMode: option(PERFORMANCE, 'performanceMode', 'options.performanceMode', { available: isCapacitorAndroid }),
     backgroundThrottling: option(PERFORMANCE, 'backgroundThrottling', 'options.backgroundThrottling', { electronOnly: true }),
     glowFix: option(PERFORMANCE, 'glowBlurQuantize', 'options.glowBlurQuantize'),
     gpuPreference: option(PERFORMANCE, 'gpuPreference', 'options.gpuPreference', { electronOnly: true, available: () => IS_WINDOWS_DESKTOP }),
@@ -80,6 +84,10 @@ const GraphicsPage: React.FC = () => {
         glowFix: state.glowBlurQuantize,
         setFrameRate: state.handleSetVisualizerFrameRate,
         setGlowFix: state.handleToggleGlowBlurQuantize,
+    })));
+    const performance = usePerformanceSettingsStore(useShallow(state => ({
+        performanceMode: state.performanceMode,
+        setPerformanceMode: state.handleTogglePerformanceMode,
     })));
     const motion = useMotionSettingsStore(useShallow(state => ({
         surfaces: state.reducedMotionSurfaces,
@@ -124,6 +132,11 @@ const GraphicsPage: React.FC = () => {
                         />
                     </Row>
                 </Reveal>
+                {isCapacitorAndroid() && (
+                    <Row option={O.performanceMode} hint={t('options.performanceModeDesc')}>
+                        <Toggle checked={performance.performanceMode} onChange={performance.setPerformanceMode} />
+                    </Row>
+                )}
                 {isElectron && (
                     <Row option={O.backgroundThrottling} hint={t('options.backgroundThrottlingHint')} note={t('options.backgroundThrottlingDesc')}>
                         <Toggle checked={backgroundThrottling} onChange={setBackgroundThrottling} />

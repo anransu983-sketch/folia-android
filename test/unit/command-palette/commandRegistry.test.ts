@@ -189,6 +189,7 @@ const createContext = (overrides: CommandPaletteContextOverrides = {}): CommandP
             setTransitionMode: vi.fn(),
             toggleTransitionPerformance: vi.fn(),
             canUseTransitionPerformance: vi.fn(() => true),
+            togglePerformanceMode: vi.fn(),
         },
         visualizer: {
             visualizerMode: 'classic',

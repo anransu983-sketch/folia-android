@@ -401,6 +401,8 @@ export type CommandPaletteSettingsContext = {
      * model" for the rest of the session.
      */
     canUseTransitionPerformance: () => boolean;
+    /** 安卓性能模式（降特效保帧率）：命令与设置页走同一个 store 动作，命令本身只在安卓注册。 */
+    togglePerformanceMode: () => void;
 };
 
 /**
