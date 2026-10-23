@@ -219,6 +219,26 @@
             android:theme="@style/AppTheme.NoActionBar" />
 
         <!--
+            YouTube Music 登录：单独一座装 WebView 的 Activity。
+
+            为什么不能在主界面那个 WebView 里登录：把它导航到 accounts.google.com 等于把整个
+            应用页面换掉；而 Chrome Custom Tab 的 cookie 落在 Chrome 自己的罐里，我们读不到。
+            登录完由它把 youtube.com 的 cookie 经 FoliaYtm 交回 Web 层 —— 凭据只能是 cookie，
+            因为 YouTube 没有给 YouTube Music 的 OAuth。
+
+            不进最近任务：它是登录流程里的一步，不是用户可以自己切回去的一个「页面」。
+            不给 noHistory：那个属性会让系统在「离开」时（被遮挡也算）把它 finish 掉，
+            登录中途被回收就前功尽弃 —— 与 LockScreenMusicActivity 那边的坑同源。
+        -->
+        <activity
+            android:name=".YtmSignInActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:label="登录 YouTube Music"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:theme="@style/AppTheme.NoActionBar" />
+
+        <!--
             音乐锁屏页：系统正式支持的「画在锁屏之上」只能靠 Activity
             （悬浮窗那条路各家 ROM 说了算，见 LockScreenMusicActivity 的说明）。
 

@@ -193,6 +193,12 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(com.suanran.folia.coloros.FoliaColorOsLyricsPlugin.class);
         // 本地登录（内置接口代码 + Cookie/OkHttp）与返回键都在这个插件上。
         registerPlugin(FoliaNativePlugin.class);
+        // YouTube Music：只管「登录一次、把 YouTube 的 cookie 交出来」，取数不经过原生
+        // （youtubei.js 跑在主 WebView 里，见 FoliaYtmPlugin 的说明）。
+        registerPlugin(FoliaYtmPlugin.class);
+        // Spotify：只管 OAuth —— 回调要一个本地端口（5588），换 token 会撞 CORS，
+        // 两件 WebView 都做不了（见 FoliaSpotifyPlugin 的说明）。
+        registerPlugin(FoliaSpotifyPlugin.class);
         // StatusBar 的 overlaysWebView 必须在 capacitor.config.json 里显式写 false：
         // 插件默认值是 true，构造时就会自动应用，而它的实现用的是废弃的
         // setSystemUiVisibility，只覆盖状态栏、不覆盖导航栏，还会冲掉这里的全沉浸设置。
