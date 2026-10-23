@@ -56,6 +56,11 @@ captures/
 keystore.properties
 *.jks
 *.keystore
+# 例外（folia-android 定制）：固定签名故意入库，保证每次 CI 出的包同签名可覆盖升级。
+# folia-release.jks 与探针/梦盒共用同一把 debug keystore（证书 SHA-256 87f534b9…），
+# keystore.properties 只指向它并写明其公开的默认口令，不含任何私有凭据。
+!keystore.properties
+!folia-release.jks
 
 # External native build folder generated in Android Studio 2.2 and later
 .externalNativeBuild
