@@ -12,6 +12,7 @@ import AndroidColorOsLyricsSetting from '../AndroidColorOsLyricsSetting';
 import { isCapacitorAndroid } from '../../../../platform/runtime';
 import { DesktopStageRows, WebStageRows } from './integration/StageModeRows';
 import SyncServerRows from './integration/SyncServerRows';
+import SpotifyClientIdRows from './integration/SpotifyClientIdRows';
 import { useSettingsPage } from './settingsPageContext';
 
 // src/components/modal/settings/pages/IntegrationPage.tsx
@@ -44,6 +45,7 @@ const IntegrationPage: React.FC = () => {
             <Group def={SERVICES}>
                 <NavidromeRows />
                 <SyncServerRows />
+                {isCapacitorAndroid() && <SpotifyClientIdRows />}
                 {isElectron && (
                     <>
                         <Row option={O.discord} hint={t('options.discordRichPresenceDesc')}>

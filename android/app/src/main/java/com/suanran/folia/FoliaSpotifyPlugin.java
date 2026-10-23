@@ -38,8 +38,8 @@ import okhttp3.Response;
  *
  *  · **收 OAuth 回调** —— 桌面端是在 Node 里起 `http://127.0.0.1:5588` 等着 Spotify 把浏览器
  *    送回来（见 electron/spotify/signIn.cjs）。安卓 WebView 起不了服务器，所以由 Java 起。
- *    **端口保持 5588**：那个 client_id 量过的就是 5588，换端口 Spotify 未必认，而这个
- *    client_id 不是我们的、白名单改不了。
+ *    **端口保持 5588**：内置 client_id 的白名单里就是这一个地址；用户自带 client_id 时也要
+ *    把重定向地址填成同一个，所以回调地址永远不变。
  *  · **换 token** —— `accounts.spotify.com/api/token` 从 WebView 里调会撞 CORS。
  *
  * 拿到 access token 之后，取数据（搜索 / 歌单 / 专辑）走公开 Web API，在主 WebView 里
@@ -56,7 +56,13 @@ import okhttp3.Response;
 public class FoliaSpotifyPlugin extends Plugin {
     private static final String TAG = "FoliaSpotify";
 
-    /** 与桌面端同一个 client：开源播放器共用的那个桌面客户端身份（见 electron/spotify/signIn.cjs）。 */
+    /**
+     * 内置 client：与桌面端同一个，开源播放器共用的那个桌面客户端身份（见 electron/spotify/signIn.cjs）。
+     *
+     * 它只是**缺省**：Web 侧在 signIn / refresh 里带了用户自带的 client_id 就用用户的 —— 共用
+     * 客户端的限流桶全网共挤（登录成功、读账号连吃 429 出过实证），自带一个就各用各的桶。
+     * 流程是 PKCE，没有 client secret 参与，所以换 ID 只换这一个字符串。
+     */
     private static final String CLIENT_ID = "65b708073fc0480ea92a077233ca87bd";
     private static final int PORT = 5588;
     private static final String REDIRECT_URI = "http://127.0.0.1:" + PORT + "/login";
@@ -102,9 +108,17 @@ public class FoliaSpotifyPlugin extends Plugin {
      * 没走通（取消 / 拒绝 / 超时 / 端口被占）是 `{ ok: false, error: { code, message } }`
      * —— **不是** reject：reject 到 JS 侧会被统一折成 `unavailable`，真正的原因就没了。
      */
+    /** 这次登录用哪个 client：Web 侧带了用户自带的就用它（去空白），没带 / 空白回内置共用的。 */
+    private static String clientIdOf(PluginCall call) {
+        String custom = call.getString("clientId");
+        if (custom != null && !custom.trim().isEmpty()) return custom.trim();
+        return CLIENT_ID;
+    }
+
     @PluginMethod
     public void signIn(PluginCall call) {
         stopListening();
+        final String clientId = clientIdOf(call);
 
         final String verifier = base64url(randomBytes(64));
         final String state = base64url(randomBytes(16));
@@ -130,7 +144,7 @@ public class FoliaSpotifyPlugin extends Plugin {
 
         final String page = AUTHORIZE_URL + "?" + queryOf(new String[][] {
             { "response_type", "code" },
-            { "client_id", CLIENT_ID },
+            { "client_id", clientId },
             { "redirect_uri", REDIRECT_URI },
             { "scope", SCOPES },
             { "code_challenge_method", "S256" },
@@ -158,7 +172,7 @@ public class FoliaSpotifyPlugin extends Plugin {
                         return;
                     }
                     try {
-                        handle(socket, state, verifier, kept, settled);
+                        handle(socket, state, verifier, clientId, kept, settled);
                     } catch (IOException ignored) {
                         // 浏览器那边断了（用户切走了、连被重置）：继续等下一次。
                     } finally {
@@ -198,7 +212,7 @@ public class FoliaSpotifyPlugin extends Plugin {
             return;
         }
         FormBody.Builder fields = new FormBody.Builder()
-            .add("client_id", CLIENT_ID)
+            .add("client_id", clientIdOf(call))
             .add("grant_type", "refresh_token")
             .add("refresh_token", refreshToken);
         call.setKeepAlive(true);
@@ -211,7 +225,7 @@ public class FoliaSpotifyPlugin extends Plugin {
      * 任何人都可能在这个端口开着的时候敲一下（也包括请求行不是合法地址的情况），一律按
      * 「陌生人」答 404，绝不因为解析失败把这次登录判死。
      */
-    private void handle(Socket socket, String state, String verifier, PluginCall call, AtomicBoolean settled)
+    private void handle(Socket socket, String state, String verifier, String clientId, PluginCall call, AtomicBoolean settled)
         throws IOException {
         BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
         String requestLine = reader.readLine();
@@ -255,7 +269,7 @@ public class FoliaSpotifyPlugin extends Plugin {
         }
         write(socket, 200, pageOf(PAGE_DONE));
         requestTokens(new FormBody.Builder()
-            .add("client_id", CLIENT_ID)
+            .add("client_id", clientId)
             .add("grant_type", "authorization_code")
             .add("code", code)
             .add("redirect_uri", REDIRECT_URI)

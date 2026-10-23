@@ -1,5 +1,6 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { isCapacitorAndroid } from '../../../platform/runtime';
+import { readSpotifyClientId } from '../../../stores/useSpotifySettingsStore';
 
 // src/services/onlineMusic/spotify/spotifyNative.ts
 //
@@ -9,8 +10,9 @@ import { isCapacitorAndroid } from '../../../platform/runtime';
 //
 //  · **收 OAuth 回调** —— 桌面端是在 Node 里起 `http://127.0.0.1:5588` 等 Spotify 把浏览器
 //    送回来（见 electron/spotify/signIn.cjs）。安卓 WebView 起不了服务器，所以由 Java 起。
-//    **端口保持 5588**：那个 client_id 量过的就是 5588，换端口 Spotify 未必认，而这个
-//    client_id 不是我们的、白名单改不了。
+//    **端口保持 5588**：内置 client_id 的白名单里就是这一个地址；用户自带 client_id 时
+//    （设置 → 连接与集成）也要把重定向地址填成同一个 `http://127.0.0.1:5588/login`，
+//    所以回调地址永远不变。
 //  · **换 token** —— `accounts.spotify.com/api/token` 从 WebView 里调会撞 CORS。
 //
 // 拿到 access token 之后，取数据（搜索 / 歌单 / 专辑）走公开 Web API，在主 WebView 里
@@ -31,10 +33,15 @@ export type SpotifySignInResult =
     | { ok: false; error: { code: string; message: string } };
 
 interface FoliaSpotifyPlugin {
-    /** 开浏览器去 Spotify 同意页，回调落到本进程的 5588，换完 token 返回。 */
-    signIn(): Promise<SpotifySignInResult>;
-    /** 用 refresh token 换一对新的。 */
-    refresh(options: { refreshToken: string }): Promise<SpotifySignInResult>;
+    /**
+     * 开浏览器去 Spotify 同意页，回调落到本进程的 5588，换完 token 返回。
+     *
+     * clientId 是用户在设置里自带的那个（useSpotifySettingsStore）：传空 / 不传 = 原生侧
+     * 用内置共用客户端。共用客户端的限流桶全网共挤、登录后读账号会连吃 429，才有这一项。
+     */
+    signIn(options: { clientId?: string }): Promise<SpotifySignInResult>;
+    /** 用 refresh token 换一对新的；clientId 必须与签发这对令牌时同一个，规则同上。 */
+    refresh(options: { refreshToken: string; clientId?: string }): Promise<SpotifySignInResult>;
     status(): Promise<{ ready: boolean; reason?: string }>;
 }
 
@@ -58,7 +65,7 @@ export const requestSpotifyNativeSignIn = async (): Promise<SpotifySignInResult>
         return { ok: false, error: { code: 'unavailable', message: 'Spotify sign-in is not available here' } };
     }
     try {
-        const result = await FoliaSpotify.signIn();
+        const result = await FoliaSpotify.signIn({ clientId: readSpotifyClientId() || undefined });
         if (result && typeof result === 'object' && 'ok' in result) return result;
         return { ok: false, error: { code: 'invalid-response', message: 'Spotify sign-in returned a malformed result' } };
     } catch (error) {
@@ -72,7 +79,7 @@ export const refreshSpotifyNativeSession = async (refreshToken: string): Promise
         return { ok: false, error: { code: 'unavailable', message: 'Spotify sign-in is not available here' } };
     }
     try {
-        const result = await FoliaSpotify.refresh({ refreshToken });
+        const result = await FoliaSpotify.refresh({ refreshToken, clientId: readSpotifyClientId() || undefined });
         if (result && typeof result === 'object' && 'ok' in result) return result;
         return { ok: false, error: { code: 'invalid-response', message: 'Spotify refresh returned a malformed result' } };
     } catch (error) {
