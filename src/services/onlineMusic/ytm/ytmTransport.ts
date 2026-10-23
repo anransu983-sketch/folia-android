@@ -88,7 +88,13 @@ export const getYtmTransportAvailability = (): ProviderAvailability => {
 
 export async function requestYtm<T = unknown>(operation: YtmOperation, params: YtmParams = {}): Promise<T> {
     // 安卓：协议层就在本页里，直接调。
-    if (isYtmInPageAvailable()) return (await runYtmInPage(operation, params)) as T;
+    if (isYtmInPageAvailable()) {
+        const data = await runYtmInPage(operation, params);
+        // 与下面桌面路同一条：一页空结果要留痕，别和「真的没有」混过去。
+        const items = (data as { items?: unknown } | null)?.items;
+        if (Array.isArray(items) && items.length === 0) console.log(`[Ytm] ${operation} returned no items`);
+        return data as T;
+    }
     if (!getYtmTransportAvailability().configured) {
         throw new OnlineProviderError('unavailable', 'YouTube Music requires the desktop app', 'ytm');
     }

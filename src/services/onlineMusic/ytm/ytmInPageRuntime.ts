@@ -6,6 +6,13 @@ import { isNativeHttpFetchAvailable, createNativeFetch } from '../../../services
 import { requestYtmNativeSignIn, type YtmNativeSession } from './ytmNative';
 import { accountFromYtmAccountsList, ytmSignedInMarkOf } from './ytmAccountsList';
 import { ytmHomepageSignedInOf } from './ytmHomepage';
+import {
+    YTM_VIDEO_ID, ytmAlbumFromCard, ytmAlbumFromPage, ytmArtistFromPage, ytmCollectionFromRow,
+    ytmExploreSectionsOf, ytmLrcFromLyricsPage, ytmLyricsBrowseId, ytmPlaylistCountOf,
+    ytmPlaylistPageOf, ytmPlaylistRowsOf, ytmReadGrid, ytmSongFromListItem, ytmSongFromQueueItem,
+    ytmSongOfWatchPage,
+} from './ytmInPageCatalog';
+import type { YtmWireCollection, YtmWireSong } from './ytmTransport';
 
 /**
  * 安卓 WebView 里这套页内协议层能不能用。
@@ -30,11 +37,16 @@ export const isYtmInPageAvailable = (): boolean => isCapacitorAndroid() && isNat
 //
 // 没有登录也能用大半：搜索、专辑、歌单、歌词都是公开接口。要用户自己的歌单才需要 cookie。
 
-const UNSUPPORTED = new Set(['audio', 'playlist_edit', 'list_save', 'list_saved', 'song_like', 'mix']);
+const UNSUPPORTED = new Set(['audio', 'playlist_edit', 'list_save', 'list_saved', 'song_like']);
 
 /** 只建一次：Innertube 建起来要拉一次 innertube 的配置，重复建既慢又没必要。 */
 let sessionPromise: Promise<unknown> | null = null;
 let currentCookie: string | null = null;
+
+/** 与 Innertube 同一次加载拿到的解析器、节点类型表与客户端常量（歌单页/观看页/按语言读歌名要用）。 */
+let parserLib: any = null;
+let nodesLib: any = null;
+let constantsLib: any = null;
 
 /** 登录拿到的 cookie（内存里，不落盘 —— 它就是这个账号）。 */
 let signedIn: YtmNativeSession | null = null;
@@ -47,8 +59,11 @@ const loadInnertube = async () => {
      * 动态 import 是刻意的：整个库不小，而它只在这台设备真是安卓、且用户真的碰了
      * YouTube Music 时才用得上 —— 走异步分包，别让它进主包。
      */
-    const { Innertube } = await import('youtubei.js/web');
-    return Innertube.create({
+    const lib: any = await import('youtubei.js/web');
+    parserLib = lib.Parser;
+    nodesLib = lib.YTNodes;
+    constantsLib = lib.Constants;
+    return lib.Innertube.create({
         // 带着 cookie 建 = 已登录；不带就是匿名，公开接口照样通。
         ...(signedIn ? { cookie: signedIn.cookie, user_agent: signedIn.userAgent } : {}),
         // 播放器那一路要 poToken（BotGuard），安卓上搞不定，也不要 —— 这里只要取数。
@@ -104,6 +119,8 @@ const getSession = async (): Promise<any> => {
 export const resetYtmInPageSession = (): void => {
     sessionPromise = null;
     currentCookie = null;
+    // 发现页的 feed 链是上一个会话读的，一并作废（声明在下面，调用时早已就绪）。
+    homeFeedChain = null;
 };
 
 /** 让用户登录 YouTube，并把 cookie 记住。返回是否拿到了会话。 */
@@ -300,6 +317,99 @@ export const getYtmLoginDiagnostics = (): LoginDiagnosticLine[] => {
 };
 
 /*
+ * 数据类 operation 的回答形状同样是 wire 契约：桌面端 electron/ytm/ytmApiBridge.cjs
+ * 从不把 youtubei.js 的原始答复直接交出去 —— 每个 operation 都先经 catalog.cjs /
+ * webPages.cjs / webExplore.cjs 读成 `{ items, continuation? }` 一类形状，provider 只认
+ * 那些形状。页内早先把库的答复原样返回（search 还把参数写成 { filter: 'songs' }，
+ * 桌面是 { type: 'song' }），provider 在答复上读不到 items，搜索于是恒空（0.7.22.5
+ * 真机实证）。下面每个 operation 都照桌面端的读法走 ytmInPageCatalog，两边形状一致。
+ */
+
+// 与桌面端同一套入参护栏（ytmApiBridge.cjs 的 boundedText / entityId）。
+const boundedToken = (value: unknown): string | undefined => {
+    if (value === undefined) return undefined;
+    if (typeof value !== 'string' || value.length === 0 || value.length > 8192) {
+        throw new OnlineProviderError('invalid-response', 'Invalid page token', 'ytm');
+    }
+    return value;
+};
+const entityIdOf = (value: unknown): string | null => (
+    typeof value === 'string' && /^[\w-]{2,128}$/.test(value) ? value : null
+);
+const videoIdOf = (value: unknown): string | null => (
+    typeof value === 'string' && YTM_VIDEO_ID.test(value) ? value : null
+);
+
+// 歌词带行时间只有手机端客户端的答复有（与桌面端同一条，见 ytmApiBridge.cjs）。
+const MOBILE_BROWSE_URL = 'https://music.youtube.com/youtubei/v1/browse?prettyPrint=false';
+const WATCH_URL = 'https://music.youtube.com/youtubei/v1/next?prettyPrint=false';
+const MOBILE_CLIENT = Object.freeze({ clientName: 'ANDROID_MUSIC', clientVersion: '7.21.50' });
+const PLAYLISTS_TAB = 'FEmusic_liked_playlists';
+const ALBUMS_TAB = 'FEmusic_liked_albums';
+
+/** 以某个语言读一首歌的观看页（桌面端 songInLanguage）：会话只有一个语言，所以请求里自己写明。 */
+const songInLanguage = async (id: string, hl: string): Promise<YtmWireSong | null> => {
+    const client = constantsLib?.CLIENTS?.YTMUSIC;
+    if (!client?.NAME || !client?.VERSION || !parserLib) {
+        throw new OnlineProviderError('unavailable', 'YouTube Music song details are unavailable', 'ytm');
+    }
+    const response = await createNativeFetch()(WATCH_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ context: { client: { clientName: client.NAME, clientVersion: client.VERSION, hl } }, videoId: id }),
+    });
+    if (!response.ok) throw new OnlineProviderError('unavailable', 'YouTube Music song details are unavailable', 'ytm');
+    return ytmSongOfWatchPage(parserLib.parseResponse(await response.json()), id, nodesLib);
+};
+
+/**
+ * 发现页在页内只有首页 feed 一条链：feed 对象不跨请求序列化，所以链留在这里，
+ * 交出去的令牌是这条链的序号；序号对不上的令牌是上一次读的，按「没有更多」答。
+ * （桌面端在 feed 之后还接 explore / charts 两页并去掉重架子，页内没有那套原始
+ * 网页客户端，这部分差异记在案：形状一致，内容只到首页 feed。）
+ */
+let homeFeedChain: { feed: any; serial: number } | null = null;
+let homeFeedSerial = 0;
+const HOME_FEED_TOKEN = /^homefeed-(\d+)$/;
+
+const exploreInPage = async (continuation: string | undefined): Promise<unknown> => {
+    const yt: any = await getSession();
+    if (continuation === undefined) {
+        const feed = await yt.music.getHomeFeed();
+        homeFeedSerial += 1;
+        homeFeedChain = { feed, serial: homeFeedSerial };
+        return {
+            sections: ytmExploreSectionsOf(feed),
+            ...(feed?.has_continuation ? { continuation: `homefeed-${homeFeedSerial}` } : {}),
+        };
+    }
+    const serial = Number(HOME_FEED_TOKEN.exec(continuation)?.[1]);
+    if (!homeFeedChain || homeFeedChain.serial !== serial) return { sections: [] };
+    const feed = await homeFeedChain.feed.getContinuation();
+    homeFeedChain = { feed, serial };
+    return {
+        sections: ytmExploreSectionsOf(feed),
+        ...(feed?.has_continuation ? { continuation } : {}),
+    };
+};
+
+/** 资料库的一个标签页（桌面端 webLibraryPage）：原始 browse 答复读成卡片，只留所问的那一类。 */
+const libraryTabInPage = async (tabId: string, type: YtmWireCollection['type'], continuation: string | undefined): Promise<unknown> => {
+    const yt: any = await getSession();
+    const response: any = await yt.actions.execute('/browse', {
+        ...(continuation ? { continuation } : { browseId: tabId }),
+        client: 'YTMUSIC', parse: false,
+    });
+    const data = response?.data;
+    if (ytmSignedInMarkOf(data) === '0') {
+        throw new OnlineProviderError('auth-required', 'YouTube Music answered as to a guest', 'ytm');
+    }
+    const grid = ytmReadGrid(data);
+    const items = grid.rows.map(row => ytmCollectionFromRow(row)).filter(item => item?.type === type);
+    return { items, ...(grid.continuation ? { continuation: grid.continuation } : {}) };
+};
+
+/*
  * 登录这几步的回答形状也是 wire 契约的一部分：桌面端那套「浏览器里登录、轮询确认」的
  * 流程是 `web_login_*` 四个 operation 加各自的回答（见 ytmTransport 的
  * YtmWireWebLoginState），ytmProvider.auth 按它推进。
@@ -331,38 +441,133 @@ export const runYtmInPage = async (operation: string, params: Record<string, unk
     }
 
     const yt: any = await getSession();
-    const text = (value: unknown) => String(value ?? '');
 
-    switch (operation) {
-        case 'search_songs': {
-            const query = text(params.query ?? params.q);
-            if (!query) throw new OnlineProviderError('invalid-response', 'A search needs a query', 'ytm');
-            const results = await yt.music.search(query, { filter: 'songs' });
-            return results;
+    try {
+        switch (operation) {
+            case 'search_songs': {
+                const continuation = boundedToken(params.continuation);
+                if (continuation !== undefined) {
+                    const page: any = await yt.actions.execute('/search', { continuation, client: 'YTMUSIC', parse: true });
+                    const shelf = page.continuation_contents;
+                    const items = (Array.isArray(shelf?.contents) ? shelf.contents : [])
+                        .map((item: any) => ytmSongFromListItem(item)).filter((song: YtmWireSong | null): song is YtmWireSong => song !== null);
+                    return { items, ...(typeof shelf?.continuation === 'string' && shelf.continuation ? { continuation: shelf.continuation } : {}) };
+                }
+                const query = typeof params.query === 'string' ? params.query.trim() : '';
+                if (!query || query.length > 200) throw new OnlineProviderError('invalid-response', 'Search query is missing', 'ytm');
+                const search: any = await yt.music.search(query, { type: 'song' });
+                const shelf = (search.contents ?? []).find((section: any) => section?.type === 'MusicShelf');
+                const items = (shelf?.contents ?? [])
+                    .map((item: any) => ytmSongFromListItem(item)).filter((song: YtmWireSong | null): song is YtmWireSong => song !== null);
+                return { items, ...(typeof shelf?.continuation === 'string' && shelf.continuation ? { continuation: shelf.continuation } : {}) };
+            }
+            case 'lyrics': {
+                const id = videoIdOf(params.id);
+                if (!id) throw new OnlineProviderError('invalid-response', 'Invalid track id', 'ytm');
+                const watch: any = await yt.actions.execute('/next', { videoId: id, client: 'YTMUSIC', parse: false });
+                const browseId = ytmLyricsBrowseId(watch?.data);
+                if (!browseId) return null;
+                const response = await createNativeFetch()(MOBILE_BROWSE_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ context: { client: MOBILE_CLIENT }, browseId }),
+                });
+                if (!response.ok) throw new OnlineProviderError('unavailable', 'YouTube Music lyrics are unavailable', 'ytm');
+                const mainText = ytmLrcFromLyricsPage(await response.json());
+                return mainText ? { mainText } : null;
+            }
+            case 'album': {
+                const id = entityIdOf(params.id);
+                if (!id?.startsWith('MPRE')) throw new OnlineProviderError('invalid-response', 'Invalid album id', 'ytm');
+                return ytmAlbumFromPage(await yt.music.getAlbum(id), id);
+            }
+            case 'artist': {
+                const id = entityIdOf(params.id);
+                if (!id?.startsWith('UC')) throw new OnlineProviderError('invalid-response', 'Invalid artist id', 'ytm');
+                const { albumShelves, ...artist } = ytmArtistFromPage(await yt.music.getArtist(id), id);
+                const self: Array<{ id: string; name: string }> = [{ id, name: artist.collection.name }];
+                // 与桌面端一样：轮播只给头几张，「更多」页才列全；读不到就用轮播里的。
+                const shelves = await Promise.all(albumShelves.map(async shelf => {
+                    if (!shelf.more) return shelf.items;
+                    try {
+                        const page: any = await shelf.more.call(yt.actions, { client: 'YTMUSIC', parse: true });
+                        const full = (page.contents_memo?.getType(nodesLib.MusicTwoRowItem) ?? [])
+                            .map((item: any) => ytmAlbumFromCard(item, self)).filter((card: YtmWireCollection | null): card is YtmWireCollection => card !== null);
+                        return full.length > 0 ? full : shelf.items;
+                    } catch { return shelf.items; }
+                }));
+                const albums = [...new Map(shelves.flat().map(album => [album.id, album])).values()];
+                return { ...artist, albums };
+            }
+            case 'playlist': {
+                // 歌单按账号读（只有这样能看到私有的）：没登录就明说，别返回空列表。
+                requireSignIn(operation);
+                const id = entityIdOf(params.id);
+                if (!id) throw new OnlineProviderError('invalid-response', 'Invalid playlist id', 'ytm');
+                const continuation = boundedToken(params.continuation);
+                const response: any = await yt.actions.execute('/browse', {
+                    ...(continuation ? { continuation } : { browseId: `VL${id}` }),
+                    client: 'YTMUSIC', parse: false,
+                });
+                const data = response?.data;
+                if (ytmSignedInMarkOf(data) === '0') {
+                    throw new OnlineProviderError('auth-required', 'YouTube Music answered as to a guest', 'ytm');
+                }
+                const trackCount = continuation ? undefined : ytmPlaylistCountOf(data);
+                const read = ytmPlaylistPageOf(parserLib.parseResponse(data), Boolean(continuation), nodesLib, ytmPlaylistRowsOf(data), trackCount);
+                if (continuation) return read;
+                console.log(`[Ytm] Playlist page: ${read.items.length} song(s), ${read.items.filter(song => song.setVideoId).length} with the id of their row`);
+                return trackCount === undefined ? read : { ...read, trackCount };
+            }
+            case 'public_playlist': {
+                const id = entityIdOf(params.id);
+                if (!id) throw new OnlineProviderError('invalid-response', 'Invalid playlist id', 'ytm');
+                const continuation = boundedToken(params.continuation);
+                const page: any = await yt.actions.execute('/browse', {
+                    ...(continuation ? { continuation } : { browseId: `VL${id}` }),
+                    client: 'YTMUSIC', parse: true,
+                });
+                return ytmPlaylistPageOf(page, Boolean(continuation), nodesLib);
+            }
+            case 'song_detail': {
+                const id = videoIdOf(params.id);
+                if (!id) throw new OnlineProviderError('invalid-response', 'Invalid track id', 'ytm');
+                const page: any = await yt.actions.execute('/next', { videoId: id, client: 'YTMUSIC', parse: true });
+                return ytmSongOfWatchPage(page, id, nodesLib);
+            }
+            case 'song_detail_en':
+            case 'song_detail_zh': {
+                const id = videoIdOf(params.id);
+                if (!id) throw new OnlineProviderError('invalid-response', 'Invalid track id', 'ytm');
+                return songInLanguage(id, operation === 'song_detail_en' ? 'en' : 'zh-CN');
+            }
+            case 'explore':
+                return exploreInPage(boundedToken(params.continuation));
+            case 'mix': {
+                const id = entityIdOf(params.id);
+                if (!id) throw new OnlineProviderError('invalid-response', 'Invalid mix id', 'ytm');
+                const videoId = params.videoId === undefined ? undefined : videoIdOf(params.videoId);
+                if (params.videoId !== undefined && !videoId) throw new OnlineProviderError('invalid-response', 'Invalid track id', 'ytm');
+                const page: any = await yt.actions.execute('/next', {
+                    playlistId: id, ...(videoId ? { videoId } : {}), client: 'YTMUSIC', parse: true,
+                });
+                const entries = page.contents_memo?.getType(nodesLib.PlaylistPanelVideo) ?? [];
+                const items = entries.map((entry: any) => ytmSongFromQueueItem(entry)).filter((song: YtmWireSong | null): song is YtmWireSong => song !== null);
+                console.log(`[Ytm] Mix ${id}: ${items.length} song(s)`);
+                return { items };
+            }
+            case 'user_playlists':
+                requireSignIn(operation);
+                return libraryTabInPage(PLAYLISTS_TAB, 'playlist', boundedToken(params.continuation));
+            case 'user_albums':
+                requireSignIn(operation);
+                return libraryTabInPage(ALBUMS_TAB, 'album', boundedToken(params.continuation));
+            default:
+                throw new OnlineProviderError('unsupported', `YouTube Music ${operation} is not available on Android yet`, 'ytm');
         }
-        case 'lyrics': {
-            const id = text(params.videoId ?? params.id ?? params.browseId);
-            if (!id) throw new OnlineProviderError('invalid-response', 'Lyrics need a video id', 'ytm');
-            return yt.music.getLyrics(id);
-        }
-        case 'album':
-            return yt.music.getAlbum(text(params.browseId ?? params.id));
-        case 'artist':
-            return yt.music.getArtist(text(params.browseId ?? params.id));
-        case 'playlist':
-        case 'public_playlist':
-            return yt.music.getPlaylist(text(params.id ?? params.browseId ?? params.playlistId));
-        case 'song_detail':
-        case 'song_detail_en':
-        case 'song_detail_zh':
-            return yt.music.getInfo(text(params.videoId ?? params.id));
-        case 'explore':
-            return yt.music.getHomeFeed();
-        case 'user_playlists':
-        case 'user_albums':
-            requireSignIn(operation);
-            return yt.music.getLibrary();
-        default:
-            throw new OnlineProviderError('unsupported', `YouTube Music ${operation} is not available on Android yet`, 'ytm');
+    } catch (error) {
+        // 与桌面端桥同一条：数据类 operation 失败要留痕，别被上层吞成一张空页还没人知道为什么。
+        console.warn(`[Ytm] ${operation} failed`, error);
+        throw error;
     }
 };
