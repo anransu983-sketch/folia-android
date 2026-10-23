@@ -175,8 +175,10 @@ public class YtmSignInActivity extends AppCompatActivity {
                 // 只管主框架：子资源（图片/脚本）失败不该把整页判死。
                 if (request == null || !request.isForMainFrame()) return;
                 pageErrorShown = true;
+                // 文案别许诺「完成」能重试：完成键是交 cookie 的，它不会重载页面。
+                // 真正的重载挂在这条提示本身上（见 buildStatusLabel 的点击处理）。
                 showStatus("页面加载失败（错误 " + error.getErrorCode() + "：" + error.getDescription() + "）\n"
-                    + "请检查网络或代理后，点上方「完成」重试，或点「取消」退出。");
+                    + "请检查网络或代理后，点这条提示重新加载；或点上方「取消」退出。");
             }
 
             @Override
@@ -186,7 +188,7 @@ public class YtmSignInActivity extends AppCompatActivity {
                 if (code < 400) return;
                 pageErrorShown = true;
                 showStatus("页面加载失败（HTTP " + code + " " + response.getReasonPhrase() + "）\n"
-                    + "请检查网络或代理后，点上方「完成」重试，或点「取消」退出。");
+                    + "请检查网络或代理后，点这条提示重新加载；或点上方「取消」退出。");
             }
         });
         // WebView 与状态字同住一格：加载/出错时状态字压在页面中央，白屏也要有字可看
@@ -252,6 +254,18 @@ public class YtmSignInActivity extends AppCompatActivity {
         int pad = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16, getResources().getDisplayMetrics());
         label.setPadding(pad, pad, pad, pad);
         label.setBackgroundColor(Color.parseColor("#222222"));
+        /*
+         * 出错时这条提示兼作「重新加载」按钮：页面加载失败后用户手边没有别的重试入口
+         * （「完成」是交 cookie 的，不重载页面，旧文案却让人点它重试，是句空话）。
+         * 只在确实出过错（pageErrorShown）时才响应点击，加载中的提示点了不作数；
+         * 重载后 onPageStarted 会把错误标记清掉并换回「正在加载…」。
+         */
+        label.setClickable(true);
+        label.setOnClickListener(view -> {
+            if (!pageErrorShown || handedOver || webView == null) return;
+            pageErrorShown = false;
+            webView.reload();
+        });
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         params.gravity = Gravity.CENTER;
