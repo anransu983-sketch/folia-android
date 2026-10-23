@@ -95,6 +95,8 @@ import { useLocalLibraryAutoScan } from './hooks/useLocalLibraryAutoScan';
 import { useElectronVideoExportController } from './hooks/useElectronVideoExportController';
 import { useElectronWindowPlaybackHandoff } from './components/app/playback/restore/useElectronWindowPlaybackHandoff';
 import { useMediaSessionBridge } from './hooks/useMediaSessionBridge';
+import { useCapacitorPlaybackBridge } from './hooks/useCapacitorPlaybackBridge';
+import { useBackgroundRenderPause } from './hooks/useBackgroundRenderPause';
 import { usePlayerChromeAutoHide } from './hooks/usePlayerChromeAutoHide';
 import { useMacWallpaperHitRegions } from './hooks/useMacWallpaperHitRegions';
 import { useIdleCursorHide } from './hooks/useIdleCursorHide';
@@ -160,6 +162,10 @@ import { useLibraryOcclusionSettled } from './hooks/useLibraryOcclusionSettled';
 import { useWallHandoffStore } from './stores/useWallHandoffStore';
 import { countRender } from './dev/renderCount';
 import { resolveSongLiked } from './utils/resolveSongLiked';
+import { resolveLikeAvailability } from './utils/playerLikeAvailability';
+import { NATIVE_PLAYBACK_ENABLED, nativePlaybackEngine } from './services/playbackEngine/nativePlaybackEngine';
+import { isNativePlayerAvailable } from './services/playbackEngine/nativePlayerPlugin';
+import { useNativePlaybackRuntime } from './services/playbackEngine/useNativePlaybackRuntime';
 import StageSessionEmptyState from './components/app/stage/StageSessionEmptyState';
 import { useVisualizerRendererModel } from './components/visualizer/useVisualizerRendererModel';
 import { useVisualizerTunings } from './components/visualizer/useVisualizerTunings';
@@ -493,6 +499,9 @@ export default function App() {
         playerState === PlayerState.PLAYING,
     );
     useBackgroundLyricHold();
+    // 退后台就停渲染：把 CPU 让给音频解码，后台播放才不会跟画面抢时间片。
+    // 它只停 rAF 与 CSS 动画、暂停 <video>，不碰 <audio> 的媒体时钟（见 backgroundRenderGate）。
+    useBackgroundRenderPause();
     // The app.overlay mod layers read the same lyric clock and line the hold keeps still: paused with it.
     const backgroundLyricHeld = useBackgroundLyricHoldStore(state => state.held);
 
@@ -556,6 +565,28 @@ export default function App() {
     const getTargetPlaybackVolume = useCallback(() => (isMuted ? 0 : volume), [isMuted, volume]);
 
     const persistLastPlaybackCache = useCallback(persistPlaybackCache, []);
+
+    /*
+     * 原生播放（P1）的开关判定。
+     *
+     * ⛔ 总闸 `NATIVE_PLAYBACK_ENABLED` 目前是关的（见 nativePlaybackEngine.ts 的说明），
+     * 所以下面三个值恒为 false，useNativePlaybackRuntime 挂着也不参与 —— 判定只在这里
+     * 算一份，桥的取时与 seek 都读它，拨开总闸那天不用再到处找判定点。
+     *
+     * 与 maimai 的差异：本仓没有 `nativePlaybackEnabled` 用户开关（maimai 里那一项也已随
+     * 停用从设置里撤掉），且本仓的设置键由 storeContract 快照钉着，所以这里不新增设置项；
+     * 总闸关着时有没有这一层结果相同。拨开总闸前要一并补：用户开关、seekMainAudio 与
+     * syncOutputGain 的原生分支。
+     *
+     * `nativeTakesRef` 给那些「用户按下时才跑」的回调（seek、通知栏取时）用：
+     * 它们不该因为换了一首歌就换身份。
+     */
+    const nativeActive = NATIVE_PLAYBACK_ENABLED && isNativePlayerAvailable();
+    const nativeTakes = nativeActive && nativePlaybackEngine.supports(audioSrc);
+    const nativeTakesRef = useRef(false);
+    useEffect(() => {
+        nativeTakesRef.current = nativeTakes;
+    }, [nativeTakes]);
 
     const syncOutputGain = useCallback((targetVolume: number, smoothing = 0.015) => {
         const clampedVolume = clampMediaVolume(targetVolume);
@@ -1428,6 +1459,41 @@ export default function App() {
         isNowPlayingControlDisabledRef,
     });
 
+    // Capacitor Android 专有：把播放状态接到原生前台服务，换通知栏媒体控制，
+    // 并让进程拿到前台优先级 —— 否则应用切到后台时 WebView 的 fetch 会被节流挂住，
+    // 自动切下一首就拿不到歌曲地址。非 Android 平台直接空转。
+    //
+    // seekMainAudio 定义在下面（它依赖这批 transport 回调），而通知栏的拖动事件
+    // 是异步来的，所以用 ref 接过声明顺序，不把它提前。
+    const seekMainAudioRef = useRef<(time: number) => void>(() => { });
+    // 通知栏那颗心要的两个值：这首歌现在喜不喜欢、这个动作现在能不能用。
+    //
+    // 「能不能用」必须和侧边面板同一份判定（resolveLikeAvailability）—— 各平台支不支持
+    // 收藏、正由外部 Stage 播放时归谁管，都在那一份里。分头判的话会出现面板置灰、
+    // 通知栏却能点，点下去只得到一个「收藏失败」。
+    // 「混音过渡中 / 无音源」那一档传 false：它是面板里的一瞬间，通知栏感知不到，
+    // 而且它会随下一次元数据推送自己纠正回来。
+    const nativeSongLiked = resolveSongLiked(displaySong, { isLocalSongLiked, starredNavidromeSongIds });
+    const nativeCanLikeSong = !resolveLikeAvailability(displaySong, false, isNowPlayingStageActive).disabled;
+    useCapacitorPlaybackBridge({
+        currentSong: displaySong,
+        cachedCoverUrl: displayCoverUrl ?? cachedCoverUrl,
+        playerState: displayPlayerState,
+        mediaSessionPlayRef,
+        mediaSessionPauseRef,
+        mediaSessionPrevRef,
+        mediaSessionNextRef,
+        // 通知栏那条进度条的位置来源。原生播放时必须直接问引擎：后台里 rAF 被停掉，
+        // `currentTime` 那个 motion signal 会停在最后一次前台读数上 —— 于是通知栏
+        // 显示 00、拖动改完又被下一拍推回 00。
+        getCurrentTime: () => (nativeTakesRef.current ? nativePlaybackEngine.getPositionSec() : currentTime.get()),
+        onSeek: (seconds) => seekMainAudioRef.current(seconds),
+        isLiked: nativeSongLiked,
+        canLike: nativeCanLikeSong,
+        // 与面板里的喜爱按钮同一个动作：能不能用、状态怎么存都归它，原生不自己记账。
+        onToggleLike: handleLike,
+    });
+
     const {
         exportState,
         handleExportCommand,
@@ -1498,6 +1564,32 @@ export default function App() {
         syncNowPlayingClock,
         lyricTimelineOffsetMs: effectiveLyricTimelineOffsetMs,
         incomingLyricTimelineOffsetMs,
+    });
+
+    /*
+     * 原生播放（P1）的接线。
+     *
+     * 这里只接「事件 → 状态机」那一半（时长、播完、播不出来）。进度条与歌词的时钟不在这里写：
+     * 它们在 usePlaybackVisualizerBridge 的 rAF 里统一从 `nativePlaybackEngine` 读，
+     * 两个写手抢同一个 motion signal 只会互相抹掉。
+     *
+     * 总闸关着时 enabled 恒 false，这一层不参与（见上面 nativeActive 的说明）。
+     */
+    useNativePlaybackRuntime({
+        enabled: nativeActive,
+        audioSrc,
+        shouldAutoPlayRef: shouldAutoPlay,
+        isLyricsLoading,
+        getTargetPlaybackVolume,
+        repeatOne: effectiveLoopMode === 'one',
+        onEnded: () => {
+            cacheSongAssets();
+            void handleNextTrack({ allowStopOnMissing: true, shouldNavigateToPlayer: false });
+        },
+        onError: () => {
+            setStatusMsg(prev => (prev?.persistent ? prev : { type: 'error', text: t('status.playbackError') }));
+            setPlayerState(PlayerState.IDLE);
+        },
     });
 
     const {
@@ -2025,6 +2117,7 @@ export default function App() {
             void publishStagePlayerPlaybackUpdate();
         }
     }, [publishStagePlayerPlaybackUpdate]);
+    seekMainAudioRef.current = seekMainAudio;
 
     const handleMonetLyricLineSeek = useCallback((lyricTimeSec: number) => {
         if (isNowPlayingControlDisabled) {
