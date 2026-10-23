@@ -14,7 +14,9 @@ import { codeText } from '../../../utils/errorText';
 const CASES: Record<LoginCaseId, { kind: LoginCaseKind; action: LoginCaseAction | 'retry'; details: boolean }> = {
     'code-expired': { kind: 'A', action: 'refresh-code', details: false },
     'expired-after-scan': { kind: 'A', action: 'refresh-code', details: true },
-    'browser-unfinished': { kind: 'A', action: 'sign-in-again', details: false },
+    // 浏览器登录判「未完成」不一定是用的人没登完：也可能是交接环节把窗口抢关、交回的会话是
+    // 半成品（真机实证）。这类要靠诊断才分得清，所以和别的情况一样给详情入口。
+    'browser-unfinished': { kind: 'A', action: 'sign-in-again', details: true },
     'not-authorized': { kind: 'A', action: 'sign-in-again', details: true },
     unreachable: { kind: 'B', action: 'retry', details: true },
     'no-answer': { kind: 'B', action: 'retry', details: true },

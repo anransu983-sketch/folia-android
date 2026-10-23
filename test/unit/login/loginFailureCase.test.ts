@@ -29,7 +29,7 @@ describe('the table of sign-in cases', () => {
         expect(table).toEqual({
             'code-expired': 'A refresh-code none',
             'expired-after-scan': 'A refresh-code details',
-            'browser-unfinished': 'A sign-in-again none',
+            'browser-unfinished': 'A sign-in-again details',
             'not-authorized': 'A sign-in-again details',
             unreachable: 'B refresh-code|sign-in-again details',
             'no-answer': 'B refresh-code|sign-in-again details',
