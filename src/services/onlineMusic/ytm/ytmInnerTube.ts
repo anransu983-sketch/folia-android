@@ -33,6 +33,12 @@ export type YtmBridgeStream = {
     url: string;
     /** 命中的客户端线路名（登录链命中带 +signed-in 后缀）。 */
     route: string;
+    /**
+     * 铸链那个客户端的 UA。取流必须带同一个 UA：googlevideo 按铸链时的请求形态认人，
+     * 换 UA 取流会被拒、只回空包（0.7.22.8 真机定性）。旧桥答复没有这一项时为空，
+     * 取流回落到代理自己的默认 UA，不报错。
+     */
+    userAgent?: string;
     itag?: number;
     bitrate?: number;
     /** 实际给到的档位：要 ultra 桥降到 high 时以桥的为准（provider 同口径）。 */
@@ -42,7 +48,7 @@ export type YtmBridgeStream = {
 // 桥的答复形状是设计稿 §4.2 的契约：成功在 stream 里、失败在 error 里，别拍平——
 // 拍平读会把每个成功都读成「形状不对」。
 type YtmBridgeResolveAnswer =
-    | { ok: true; stream: { url: string; route: string; itag?: number; bitrate?: number; level?: string } }
+    | { ok: true; stream: { url: string; route: string; userAgent?: string; itag?: number; bitrate?: number; level?: string } }
     | { ok: false; error: { code: string; message: string; attempts?: YtmBridgeAttempt[] } };
 
 type YtmBridgeStatus = { ready: boolean; visitorData: string; egress: string };
@@ -178,6 +184,7 @@ export const resolveYtmStreamViaBridge = async (input: {
     return {
         url: stream.url,
         route: stream.route,
+        ...(typeof stream.userAgent === 'string' && stream.userAgent ? { userAgent: stream.userAgent } : {}),
         ...(typeof stream.itag === 'number' ? { itag: stream.itag } : {}),
         ...(typeof stream.bitrate === 'number' ? { bitrate: stream.bitrate } : {}),
         ...(stream.level === 'standard' || stream.level === 'high' || stream.level === 'ultra'

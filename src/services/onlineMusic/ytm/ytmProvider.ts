@@ -104,10 +104,15 @@ export const ytmProvider: OnlineMusicProvider = {
         async getAudioSource(song, quality) {
             const id = requireYtmSong(song);
             const startedAt = Date.now();
-            const audio = await requestYtm<{ url: string; route: string; itag?: number; bitrate?: number; level?: 'high' }>('audio', { id, quality });
+            const audio = await requestYtm<{ url: string; route: string; itag?: number; bitrate?: number; level?: 'high'; srcForm?: 'loopback' | 'direct'; srcHost?: string; srcUa?: boolean }>('audio', { id, quality });
             const served = audio.level ?? quality;
             const format = audio.itag ? ` (itag ${audio.itag}, ${Math.round((audio.bitrate ?? 0) / 1000)} kbit/s)` : '';
-            console.log(`[Ytm] Audio for "${song.name}" (${id}) at ${quality}${served === quality ? '' : ` (served at ${served})`} is ready by the ${audio.route} route${format} after ${Date.now() - startedAt}ms`);
+            // 安卓 runtime 随答复带回的 src 形态（只有 host、回环/直链、带没带铸链 UA，
+            // 没有地址本体）：取流出问题时靠它在 Web 日志里分流——直链是改写静默
+            // 回落、会被 CORS 挡；回环但没 UA 是代理取流的 UA 没带上。桌面答复没这
+            // 些字段，这段就不出现。
+            const src = audio.srcForm ? ` [src ${audio.srcForm}${audio.srcHost ? ` ${audio.srcHost}` : ''}${audio.srcUa ? ' +bridge UA' : ''}]` : '';
+            console.log(`[Ytm] Audio for "${song.name}" (${id}) at ${quality}${served === quality ? '' : ` (served at ${served})`} is ready by the ${audio.route} route${format} after ${Date.now() - startedAt}ms${src}`);
             return { url: audio.url, fetchedAt: Date.now(), quality: served };
         },
     },

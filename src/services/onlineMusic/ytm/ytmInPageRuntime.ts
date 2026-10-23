@@ -454,18 +454,41 @@ export const runYtmInPage = async (operation: string, params: Record<string, unk
          * 直链喂播放器前过一遍回环代理（远端音频的既有做法）：WebView 的 <audio>
          * 带 crossOrigin，googlevideo 不下发 CORS 头，直连会被同源检查挡掉；
          * 且取链与取流同为原生 OkHttp 出口，代理 IP 与直链绑定的 IP 一致。
+         * 代理取流还要带铸链客户端的 UA（走 registerRemoteAudio 的 headers 通道，
+         * 覆盖代理的默认 UA）：googlevideo 按铸链时的请求形态认人，UA 不对直接拒、
+         * 只回空包，0.7.22.8 真机就是死在这里（元素 instant Format error）。桥没给
+         * UA（旧答复形状）时不带头，回落到代理默认行为，不报错。
          */
         const id = videoIdOf(params.id);
         if (!id) throw new OnlineProviderError('invalid-response', 'Invalid track id', 'ytm');
         const quality = params.quality === 'high' || params.quality === 'ultra' ? params.quality : 'standard';
         const stream = await resolveYtmStreamViaBridge({ videoId: id, quality, session: signedIn });
-        const url = await proxyNativeRemoteAudioUrl(stream.url);
+        const url = await proxyNativeRemoteAudioUrl(
+            stream.url,
+            stream.userAgent ? { headers: { 'User-Agent': stream.userAgent } } : {},
+        );
+        /*
+         * 最终 src 的形态留痕（只记 host、回环/直链、带没带 UA 头，地址本体和参数
+         * 一个字都不记）：改写是静默回落的——代理没接手时元素拿的是直链、会被
+         * CORS 挡下，症状和代理取流被拒一模一样。这几个字段随答复到 provider 的
+         * Audio 日志行，下次再出问题从 Web 日志就能分流，不必抓 logcat。
+         */
+        const srcForm = url.includes('127.0.0.1') || url.includes('localhost') ? 'loopback' : 'direct';
+        let srcHost = '';
+        try {
+            srcHost = new URL(url).host;
+        } catch {
+            srcHost = '';
+        }
         return {
             url,
             route: stream.route,
             ...(stream.itag !== undefined ? { itag: stream.itag } : {}),
             ...(stream.bitrate !== undefined ? { bitrate: stream.bitrate } : {}),
             ...(stream.level !== undefined ? { level: stream.level } : {}),
+            srcForm,
+            ...(srcHost ? { srcHost } : {}),
+            ...(stream.userAgent ? { srcUa: true } : {}),
         };
     }
 
