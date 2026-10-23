@@ -1,4 +1,5 @@
 import type { LoginSelfCheckResult, OnlineProviderId } from '../../types/onlineMusic';
+import { isFoliaExtensionBridgeConfigured } from '../foliaExtensionBridge';
 
 // src/services/onlineMusic/loginSelfCheck.ts
 // provider 的扫码自检入口：桌面版交给主进程（electron/loginSelfCheck.cjs：本地后端、代理、DNS、分协议族的 TCP / TLS、HTTPS）；
@@ -10,8 +11,11 @@ const hasElectronSelfCheck = (): boolean => (
     typeof window !== 'undefined' && typeof window.electron?.runLoginSelfCheck === 'function'
 );
 
-/** 此刻能不能自检：桌面版总能；网页版要配置了远端 API。 */
-export const canRunLoginSelfCheck = (remoteBase: string | null): boolean => hasElectronSelfCheck() || Boolean(remoteBase);
+/** 此刻能不能自检：桌面版总能；网页版要配置了远端 API。**API 基址是本地桥的哨兵值（`extension`）时没有远端可查**，
+ *  强行探测会把 `extension` 拼成 `https://localhost/extension` 再报「地址指向本机」—— 那是误报，不是故障。 */
+export const canRunLoginSelfCheck = (remoteBase: string | null): boolean => (
+    hasElectronSelfCheck() || (Boolean(remoteBase) && !isFoliaExtensionBridgeConfigured(remoteBase))
+);
 
 const isLoopbackHost = (hostname: string): boolean => (
     hostname === 'localhost' || hostname.endsWith('.localhost') || /^127\./.test(hostname) || hostname === '[::1]' || hostname === '::1'
@@ -86,5 +90,7 @@ export const runLoginSelfCheck = async (
 ): Promise<LoginSelfCheckResult | null> => {
     if (hasElectronSelfCheck()) return window.electron!.runLoginSelfCheck!(providerId);
     if (!remoteBase) return null;
+    // 本地登录（内置在 App 里的接口代码）没有「远端」这个概念，探测只会撞到 WebView 自己的服务器。
+    if (isFoliaExtensionBridgeConfigured(remoteBase)) return null;
     return probeRemoteApi(providerId, remoteBase);
 };

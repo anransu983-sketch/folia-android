@@ -5,6 +5,11 @@ import type { PersonalFmRequestOptions, ProviderSongAvailability } from '../../.
 import { withLoginRequestLimit } from '../login/loginRequestLimit';
 import { withOnlineRequestLimit } from '../failure/onlineRequestLimit';
 import { errorFields } from '../../../utils/errorText';
+import {
+  isFoliaExtensionBridgeAvailable,
+  isFoliaExtensionBridgeConfigured,
+  requestFoliaExtension,
+} from '../../foliaExtensionBridge';
 
 type UnavailableSongReplacement = {
   replacementSong: SongResult;
@@ -178,11 +183,97 @@ const eitherSignal = (caller: AbortSignal | null | undefined, limit: AbortSignal
   return controller.signal;
 };
 
+/**
+ * 游客会话（未登录时用的那份 cookie）。
+ *
+ * 桌面端是内嵌后端去注册、渲染层把它记在 `anonymous_cookie` 里、并挂在**每个**请求的 query 上
+ * （见下面 HTTP 那条路的同名逻辑）。桥那条路原先什么都不带 —— 而桥（`folia.js`）拿到的 cookie
+ * 只来自它自己的罐子，没登录时罐子是空的：weapi 于是没有 `csrf_token`，上游一律 `{code: 301}`；
+ * weapiJson 为了不让整页失败是**不抛错**的，所以表现不是「读不出来」，而是探索页每一栏都空着。
+ *
+ * ⚠️ 上游 4.41.1 的 `/register/anonimous`：`weapi` 那条不认我们发的参数（模数修好后实测回
+ * `{"code":400,"参数错误"}`，此前因为模数写坏是「200 + 空 body」），只有 `eapi` 那条还下发
+ * MUSIC_A / __csrf —— 注册要真走到桥那边去，别在渲染层自己拼。
+ */
+let guestCookieAsked: Promise<string> | null = null;
+const guestCookie = async (): Promise<string> => {
+  const stored = readProviderSessionValue('netease', 'anonymous_cookie', ['netease_anonymous_cookie']);
+  if (stored) return stored;
+  if (!guestCookieAsked) {
+    // 一次注册供这一轮并发的请求共用；拿不到就把门打开，下一次请求可以再试（网络抖一下不该
+    // 让整个会话再也不注册）。
+    guestCookieAsked = requestFoliaExtension<{ cookie?: unknown }>({
+      provider: 'netease',
+      operation: '/register/anonimous',
+      path: '/register/anonimous',
+      method: 'GET',
+      query: {},
+      headers: {},
+    }).then((answer) => {
+      const cookie = typeof answer?.cookie === 'string' ? answer.cookie : '';
+      if (cookie) writeProviderSessionValue('netease', 'anonymous_cookie', cookie);
+      return cookie;
+    }).catch((error) => {
+      console.warn('[Netease] the guest session could not be registered', errorFields(error));
+      return '';
+    });
+    void guestCookieAsked.then((cookie) => { if (!cookie) guestCookieAsked = null; });
+  }
+  return await guestCookieAsked;
+};
+
+/** 游客会话答 301/401/403 就是它失效了：丢掉，下次重新注册（与 HTTP 那条路一样）。 */
+const forgetGuestCookie = () => {
+  guestCookieAsked = null;
+  removeProviderSessionValue('netease', 'anonymous_cookie', ['netease_anonymous_cookie']);
+};
+
 // `limit`: the time limit the request gets, which starts when the request is sent: the wait for the
 // local backend's port above is not counted. 'sign-in': one of the requests a sign-in waits for, with
 // the sign-in's limit; an HTTP error answer to it throws NeteaseLoginHttpError instead of being read as
 // an answer. 'online': a song's address or a collection's tracks, with the limit of online requests.
 const fetchWithCreds = async (endpoint: string, options: RequestInit = {}, limit?: 'sign-in' | 'online') => {
+  // 本地登录：API base 写成 extension 时请求不再出网，交给内置在 App 里的那份接口代码
+  // （Android 上是 src/nativeBridge/api/folia.js + 原生 OkHttp，网页版是 Folia Bridge 扩展）。
+  // 没配后端但桥可用时也走这里 —— 桌面/网页装了扩展就是这个组合。
+  // 少了这一段，`extension` 会被当成真地址拼进 `${base}${endpoint}`（https://localhost/extension/...），
+  // WebView 自己的服务器回一个 index.html → 二维码与歌单全部读不出来。
+  const configuredApiBase = getConfiguredApiBase();
+  const extensionConfigured = isFoliaExtensionBridgeConfigured(configuredApiBase);
+  if (!isElectronRuntime() && (extensionConfigured || !configuredApiBase)) {
+    const bridgeAvailable = await isFoliaExtensionBridgeAvailable();
+    if (bridgeAvailable) {
+      const target = new URL(endpoint, 'https://folia.local');
+      const query = Object.fromEntries(target.searchParams.entries());
+      // 会话要自己带过去：桥那边没有登录态时只有游客会话能用，而不带 cookie 的 weapi 一律 301
+      // （页面于是「每一栏都空着」而不是「读不出来」）。桌面端内嵌后端那条路是同样的写法。
+      const loginCookie = readProviderSessionValue('netease', 'cookie', ['netease_cookie']);
+      const sessionCookie = loginCookie || await guestCookie();
+      if (sessionCookie) query.cookie = sessionCookie;
+      const response = await requestFoliaExtension<Record<string, any>>({
+        provider: 'netease',
+        operation: target.pathname,
+        path: target.pathname,
+        method: options.method || 'GET',
+        query,
+        body: options.body,
+        headers: Object.fromEntries(new Headers(options.headers || {}).entries()),
+      });
+      if (response?.__foliaBridgeError) {
+        throw new Error(response.message || response.__foliaBridgeError);
+      }
+      // 用了游客会话还被判没登录＝那份游客会话过期了：丢掉，下一次请求重新注册。
+      // （登录态失效是另一回事，不在这里动。）
+      if (!loginCookie && sessionCookie && (response?.code === 301 || response?.code === 401 || response?.code === 403)) {
+        forgetGuestCookie();
+      }
+      return response;
+    }
+    if (extensionConfigured) {
+      throw new Error(NETEASE_API_UNAVAILABLE);
+    }
+  }
+
   const base = await getApiBase();
   const url = `${base}${endpoint}`;
   // Ensure we send credentials to persist session (cookies)
