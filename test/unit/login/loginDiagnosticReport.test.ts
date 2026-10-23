@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildLoginIssueUrl, diagnosticLine, formatLoginDiagnosticReport, formatLoginSelfCheck } from '@/services/onlineMusic/login/loginDiagnosticReport';
 import { formatNeteaseLoginDiagnostics } from '@/services/onlineMusic/netease/neteaseLoginDiagnostics';
 import { formatQqLoginDiagnostics } from '@/services/onlineMusic/qq/qqLoginDiagnostics';
+import { getSpotifyLoginDiagnostics } from '@/services/onlineMusic/spotify/spotifyInPageRuntime';
+import { getYtmLoginDiagnostics } from '@/services/onlineMusic/ytm/ytmInPageRuntime';
 import { loginCaseOf, loginFailureFacts } from '@/services/onlineMusic/login/loginFailureCase';
 import { omni } from '@/services/onlineMusic/omni';
 import { listOnlineMusicProviders } from '@/services/onlineMusic/providerRegistry';
@@ -153,12 +155,24 @@ describe('QR login diagnostic report', () => {
                     authEvents: [{ at: AT, level: 'warn', event: 'qq-auth.session-failed', details: { said: SAID.answer } }],
                     connections: [connectionSaying],
                 }),
+                // Spotify 与 YouTube Music 在安卓上只有 provider 自己记的那几行（页内协议层
+                // 的诊断，没有主进程的请求记录可问），所以下面只要求它们原样进报告，
+                // 不套主进程那几条断言。
+                spotify: () => getSpotifyLoginDiagnostics(),
+                ytm: () => getYtmLoginDiagnostics(),
             };
             const declaring = listOnlineMusicProviders().filter(provider => provider.auth?.getLoginDiagnostics).map(provider => provider.id);
             // The car adapter reports only safe stage/code fields, exercised in qishui/adapter.test.ts.
             expect([...Object.keys(builders), 'qishui'].sort()).toEqual(declaring.sort());
+            // 哪几个平台的报告是从主进程的记录里长出来的（其余的只有 provider 自己那几行）。
+            const fromMainProcess = new Set(['netease', 'qq']);
             for (const [providerId, build] of Object.entries(builders)) {
-                const report = reportOf(build());
+                const lines = build();
+                const report = reportOf(lines);
+                if (!fromMainProcess.has(providerId)) {
+                    for (const line of lines) expect(report, providerId).toContain(line.text);
+                    continue;
+                }
                 expect(report, providerId).toContain('2873651094');
                 expect(report, providerId).toContain('https://music.example.test/login/qr/check?key=qr-1 from 203.0.113.7');
                 expect(report, providerId).toContain('POST proxy.example.test/login/qr/check?key=qr-1 → 203.0.113.8 (v4)');
