@@ -196,6 +196,9 @@ public class MainActivity extends BridgeActivity {
         // YouTube Music：只管「登录一次、把 YouTube 的 cookie 交出来」，取数不经过原生
         // （youtubei.js 跑在主 WebView 里，见 FoliaYtmPlugin 的说明）。
         registerPlugin(FoliaYtmPlugin.class);
+        // YouTube Music 取流：冒充官方 App 客户端拿音频直链（页内取数那条路取流要
+        // poToken、安卓搞不定，见 FoliaInnerTubePlugin 的说明）。
+        registerPlugin(FoliaInnerTubePlugin.class);
         // Spotify：只管 OAuth —— 回调要一个本地端口（5588），换 token 会撞 CORS，
         // 两件 WebView 都做不了（见 FoliaSpotifyPlugin 的说明）。
         registerPlugin(FoliaSpotifyPlugin.class);

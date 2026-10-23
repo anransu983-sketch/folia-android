@@ -72,7 +72,7 @@ final class LocalAudioServer {
      * 它的 CDN 不下发 CORS 头，而 <audio> 带 crossOrigin="anonymous"，
      * 于是播放被同源策略挡掉（表现是 MEDIA_ELEMENT_ERROR: Format error）。
      */
-    private static final String[] REMOTE_AUDIO_HOST_SUFFIXES = { "kuwo.cn", "music.126.net" };
+    private static final String[] REMOTE_AUDIO_HOST_SUFFIXES = { "kuwo.cn", "music.126.net", "googlevideo.com" };
     private static final String REMOTE_AUDIO_USER_AGENT =
         "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36";
     private static final String REMOTE_AUDIO_REFERER = "https://www.kuwo.cn/";
@@ -163,12 +163,19 @@ final class LocalAudioServer {
         return "http://127.0.0.1:" + localPort + REMOTE_AUDIO_PATH_PREFIX + token;
     }
 
-    /** 有些 CDN 看 Referer 决定给不给资源：不带时回的是一段 HTML 而不是音频。 */
+    /**
+     * 有些 CDN 看 Referer 决定给不给资源：不带时回的是一段 HTML 而不是音频。
+     * 返回 null = 不带 Referer 转发：googlevideo 只认直链上的签名与请求 IP，
+     * 捎一个别家的 Referer 是无谓的异味（YouTube Music 的直链经这里转发）。
+     */
     private static String remoteAudioReferer(String value) {
         try {
             String host = new URL(value).getHost();
             if (host != null && (host.equals("music.126.net") || host.endsWith(".music.126.net"))) {
                 return NETEASE_REMOTE_AUDIO_REFERER;
+            }
+            if (host != null && (host.equals("googlevideo.com") || host.endsWith(".googlevideo.com"))) {
+                return null;
             }
         } catch (Exception ignored) {
             return REMOTE_AUDIO_REFERER;
@@ -454,7 +461,8 @@ final class LocalAudioServer {
         // 有些 CDN 看 UA / Referer 决定给不给资源，不带的话会回一段 HTML 而不是音频
         // —— 那种回包喂进 <audio> 正是「Format error」的经典来源。
         request.header("User-Agent", REMOTE_AUDIO_USER_AGENT);
-        request.header("Referer", remoteAudioReferer(target));
+        String referer = remoteAudioReferer(target);
+        if (referer != null) request.header("Referer", referer);
         // 调用方带来的头（飞牛的 music-token）最后写：同名的以它为准。
         if (extraHeaders != null) {
             for (Map.Entry<String, String> entry : extraHeaders.entrySet()) {
