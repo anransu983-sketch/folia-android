@@ -1,9 +1,14 @@
 import { OnlineProviderError } from '../../../types/onlineMusic';
-import type { ProviderErrorCode } from '../../../types/onlineMusic';
+import type { ProviderAvailability, ProviderErrorCode } from '../../../types/onlineMusic';
+import { isYtmInPageAvailable, runYtmInPage } from './ytmInPageRuntime';
 
 // src/services/onlineMusic/ytm/ytmTransport.ts
 // The IPC boundary to electron/ytm/ytmApiBridge.cjs. Google credentials stay in the main process;
 // only the shapes below cross over.
+//
+// 安卓上没有 Electron，协议层换成 ytmusic 那套跑在**主 WebView 里**（见 ytmInPageRuntime）：
+// youtubei.js 本来就是浏览器库，不必像汽水那样塞进一个隐藏 WebView。原生只留一座登录
+// Activity 负责把 YouTube 的 cookie 交出来（见 platform/foliaNative 的 FoliaYtm）。
 
 export type YtmOperation =
     | 'login_status' | 'logout'
@@ -68,13 +73,22 @@ export type YtmWireWebLoginState =
     | { state: 'confirmed'; account: unknown }
     | { state: 'error'; message: string; code?: ProviderErrorCode; reason?: string };
 
-export const getYtmTransportAvailability = () => (
-    typeof window !== 'undefined' && typeof window.electron?.ytmRequest === 'function'
-        ? { configured: true } as const
-        : { configured: false, reason: 'runtime-unavailable' } as const
-);
+/**
+ * 桌面端靠 Electron 那座桥；安卓上协议层跑在主 WebView 里，登录由原生的 Activity 负责。
+ * 两条路给的是同一套信封（operation + params → data），所以渲染层只有这一处判断。
+ */
+export const getYtmTransportAvailability = (): ProviderAvailability => {
+    if (typeof window !== 'undefined' && typeof window.electron?.ytmRequest === 'function') {
+        return { configured: true };
+    }
+    // 安卓 WebView：youtubei.js 跑在页内，不靠原生就能取数（见 ytmInPageRuntime）。
+    if (isYtmInPageAvailable()) return { configured: true };
+    return { configured: false, reason: 'runtime-unavailable' };
+};
 
 export async function requestYtm<T = unknown>(operation: YtmOperation, params: YtmParams = {}): Promise<T> {
+    // 安卓：协议层就在本页里，直接调。
+    if (isYtmInPageAvailable()) return (await runYtmInPage(operation, params)) as T;
     if (!getYtmTransportAvailability().configured) {
         throw new OnlineProviderError('unavailable', 'YouTube Music requires the desktop app', 'ytm');
     }

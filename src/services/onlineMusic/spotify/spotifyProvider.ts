@@ -17,6 +17,7 @@ import { spotifyLibrary } from './spotifyLibrary';
 import { spotifyMutations } from './spotifyMutations';
 import { resetSpotifyRecommendations, spotifyRecommendations } from './spotifyRecommendations';
 import { describeSpotifyLoginFailure, spotifyLoginFailure } from './spotifyLoginFailure';
+import { getSpotifyLoginDiagnostics } from './spotifyInPageRuntime';
 import { describeSpotifyFailure } from './spotifyFailure';
 
 // src/services/onlineMusic/spotify/spotifyProvider.ts
@@ -199,6 +200,9 @@ export const spotifyProvider: OnlineMusicProvider = {
             return failure ? { ...state, failure } : state;
         },
         describeLoginFailure: describeSpotifyLoginFailure,
+        // 登录确认之后账号没读出来（account-refresh-failed）时，报告里 Spotify 这一段就靠它
+        // 说出卡在哪：会话在不在、读「是谁」那一步成了没有。
+        getLoginDiagnostics: async () => getSpotifyLoginDiagnostics(),
         async cancelLogin(key) {
             if (activeLogin?.key === key) activeLogin = null;
             await requestSpotify('login_cancel', { key });

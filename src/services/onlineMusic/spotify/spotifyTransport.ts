@@ -1,9 +1,15 @@
 import { OnlineProviderError } from '../../../types/onlineMusic';
-import type { ProviderErrorCode } from '../../../types/onlineMusic';
+import type { ProviderAvailability, ProviderErrorCode } from '../../../types/onlineMusic';
+import { isSpotifyNativeAvailable } from './spotifyNative';
+import { runSpotifyInPage } from './spotifyInPageRuntime';
 
 // src/services/onlineMusic/spotify/spotifyTransport.ts
 // The IPC boundary to electron/spotify/spotifyApiBridge.cjs. The Spotify token stays in the main
 // process; a query is named here and sent there, and its answer comes back as Spotify gave it.
+//
+// 安卓上没有 Electron，也没有 librespot：取数改走公开 Web API，跑在**主 WebView 里**
+// （见 spotifyInPageRuntime）。原生只负责 OAuth —— 收回调要一个本地端口，换 token 会撞
+// CORS，这两件 WebView 都做不了（见 platform/foliaNative 的 FoliaSpotify）。
 
 export type SpotifyOperation =
     | 'login_start' | 'login_check' | 'login_cancel' | 'login_open' | 'login_status' | 'logout'
@@ -27,13 +33,24 @@ export interface SpotifyWireAudio { url: string; format: string }
 export interface SpotifyWireMadePlaylist { uri: string }
 export interface SpotifyWireLyrics { timed: boolean; lines: Array<{ startMs: number; words: string }> }
 
-export const getSpotifyTransportAvailability = () => (
-    typeof window !== 'undefined' && typeof window.electron?.spotifyRequest === 'function'
-        ? { configured: true } as const
-        : { configured: false, reason: 'runtime-unavailable' } as const
-);
+/**
+ * 桌面端靠 Electron 那座桥（背后是 librespot）；安卓上换成公开 Web API 跑在**主 WebView 里**
+ * （见 spotifyInPageRuntime），登录由原生的 OAuth 插件负责（见 platform/foliaNative 的
+ * FoliaSpotify：Java 绑 127.0.0.1:5588 收回调并换 token）。
+ *
+ * 两条路给的是同一套信封，所以渲染层只有这一处判断。
+ */
+export const getSpotifyTransportAvailability = (): ProviderAvailability => {
+    if (typeof window !== 'undefined' && typeof window.electron?.spotifyRequest === 'function') {
+        return { configured: true };
+    }
+    if (isSpotifyNativeAvailable()) return { configured: true };
+    return { configured: false, reason: 'runtime-unavailable' };
+};
 
 export async function requestSpotify<T = unknown>(operation: SpotifyOperation, params: SpotifyParams = {}): Promise<T> {
+    // 安卓：协议层就在本页里，直接调。
+    if (isSpotifyNativeAvailable()) return (await runSpotifyInPage(operation, params)) as T;
     if (!getSpotifyTransportAvailability().configured) {
         throw new OnlineProviderError('unavailable', 'Spotify requires the desktop app', 'spotify');
     }

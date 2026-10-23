@@ -13,6 +13,7 @@ import { forgetYtmMusicPage, ytmExplore } from './ytmExplore';
 import { ytmMutations } from './ytmMutations';
 import { resetYtmRecommendations, ytmRecommendations } from './ytmRecommendations';
 import { describeYtmLoginFailure, ytmLoginFailure } from './ytmLoginFailure';
+import { getYtmLoginDiagnostics } from './ytmInPageRuntime';
 import { describeYtmFailure } from './ytmFailure';
 import i18n from '../../../i18n/config';
 
@@ -178,6 +179,8 @@ export const ytmProvider: OnlineMusicProvider = {
             return key;
         },
         describeLoginFailure: describeYtmLoginFailure,
+        // 登录确认之后账号没读出来（account-refresh-failed）时，报告里这一段靠它说出卡在哪。
+        getLoginDiagnostics: async () => getYtmLoginDiagnostics(),
         async openLoginPage() { await requestYtm('web_login_open'); },
         // The window of the sign-in is opened by its start, and closing it ends the sign-in.
         opensLoginPageItself: () => true,
