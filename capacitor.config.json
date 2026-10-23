@@ -1,0 +1,27 @@
+{
+  "appId": "com.suanran.folia",
+  "appName": "Folia",
+  "webDir": "dist",
+  "loggingBehavior": "debug",
+  "backgroundColor": "#09090b",
+  "server": {
+    "androidScheme": "https",
+    "hostname": "localhost",
+    "cleartext": false
+  },
+  "android": {
+    "allowMixedContent": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": true,
+      "launchShowDuration": 900,
+      "backgroundColor": "#09090b",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "overlaysWebView": false,
+      "style": "LIGHT"
+    }
+  }
+}

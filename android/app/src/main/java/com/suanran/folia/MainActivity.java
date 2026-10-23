@@ -193,6 +193,12 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(com.suanran.folia.coloros.FoliaColorOsLyricsPlugin.class);
         // 本地登录（内置接口代码 + Cookie/OkHttp）与返回键都在这个插件上。
         registerPlugin(FoliaNativePlugin.class);
+        // StatusBar 的 overlaysWebView 必须在 capacitor.config.json 里显式写 false：
+        // 插件默认值是 true，构造时就会自动应用，而它的实现用的是废弃的
+        // setSystemUiVisibility，只覆盖状态栏、不覆盖导航栏，还会冲掉这里的全沉浸设置。
+        // 铺满与隐藏由原生侧（applyImmersiveMode）统一负责。
+        // 配置文件用 .json 而不是上游的 .ts：底子的 typescript 7.x 会让 @capacitor/cli
+        // 的 TS 配置加载器直接失败，cap sync 跑不起来；配置无类型运算，JSON 等价。
         registerPlugin(StatusBarPlugin.class);
         registerPlugin(SplashScreenPlugin.class);
         registerPlugin(BrowserPlugin.class);
