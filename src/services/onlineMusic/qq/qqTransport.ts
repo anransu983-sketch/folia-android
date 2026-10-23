@@ -4,6 +4,7 @@ import { withLoginRequestLimit } from '../login/loginRequestLimit';
 import { withOnlineRequestLimit } from '../failure/onlineRequestLimit';
 import { lyricProxyWebUrl } from '../../lyricProxy';
 import { errorMessage } from '../../../utils/errorText';
+import { isFoliaExtensionBridgeConfigured, requestFoliaExtension } from '../../foliaExtensionBridge';
 
 // src/services/onlineMusic/qq/qqTransport.ts
 
@@ -411,6 +412,40 @@ export const requestQq = async <T = unknown>(
     }
     const stored = getWebSessionCookie();
     const base = await resolveApiBase();
+
+    // 本地登录：QQ 的接口代码内置在 App 里（Android 是 src/nativeBridge/api/qq*.js + 原生
+    // OkHttp，网页版是 Folia Bridge 扩展），请求不出网、也不经过任何自建后端。
+    // base 写成 `extension` 就是这个意思 —— 少了这一段它会被当成真地址拼到
+    // `https://localhost/extension/...`，WebView 自己的服务器回一个 index.html，
+    // 二维码与歌单于是全部读不出来。
+    if (isFoliaExtensionBridgeConfigured(base)) {
+        const endpoint = endpointFor(operation, params);
+        try {
+            const bridged = await requestFoliaExtension<any>({
+                provider: 'qq',
+                operation,
+                method: POST_OPERATIONS.has(operation) ? 'POST' : 'GET',
+                path: endpoint.path,
+                params: endpoint.query,
+                ...(payload === undefined ? {} : { body: payload }),
+            });
+            if (bridged?.__foliaBridgeError) {
+                if (bridged.__foliaBridgeError === 'AUTH_REQUIRED') {
+                    throw new OnlineProviderError('auth-required', bridged.message || 'QQMusicApi login required', 'qq', bridged);
+                }
+                if (bridged.__foliaBridgeError === 'UNSUPPORTED') {
+                    throw new OnlineProviderError('unsupported', bridged.message || `QQMusicApi has no ${operation} route`, 'qq', bridged);
+                }
+                throw new OnlineProviderError('network', bridged.message || bridged.__foliaBridgeError, 'qq', bridged);
+            }
+            persistConfirmedSession(operation, bridged);
+            return bridged as T;
+        } catch (error) {
+            if (error instanceof OnlineProviderError) throw error;
+            throw new OnlineProviderError('network', error instanceof Error ? error.message : String(error), 'qq', error);
+        }
+    }
+
     // The session parked for this run is not sent (isQqSessionParked). The status is read once the backend has a port.
     const cookie = stored && await isQqSessionStoreUnreadable() ? '' : stored;
 

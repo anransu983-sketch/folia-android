@@ -2,6 +2,7 @@ import md5 from 'blueimp-md5';
 import { OnlineProviderError } from '../../../types/onlineMusic';
 import { readProviderSessionValue, removeProviderSessionValue, writeProviderSessionValue } from '../providerStorage';
 import { lyricProxyWebUrl, requestLyricProxyOnDesktop } from '../../lyricProxy';
+import { isFoliaExtensionBridgeConfigured, requestFoliaExtension } from '../../foliaExtensionBridge';
 import { withLoginRequestLimit } from '../login/loginRequestLimit';
 
 // src/services/onlineMusic/kugou/kugouTransport.ts
@@ -401,13 +402,16 @@ const clearWebDeviceIdentity = (): void => {
 };
 
 const persistWebSession = (response: any): void => {
-    const cookies = response?.cookie || response?.data?.cookie;
+    // 安卓内置那份酷狗接口（src/nativeBridge/api/kugou.js）登录成功时**不回 cookie 字段**：
+    // 凭据已经写进原生的 cookie 罐了，返回体里只有 userId / token。只认 cookie 就等于
+    // 「扫码确认了、会话却没存」，下一步 user_detail 读不到账号。
+    const cookies = response?.cookie || response?.data?.cookie || response?.session?.cookie;
     if (typeof cookies === 'string' && cookies) writeProviderSessionValue('kugou', 'cookie', cookies);
     if (Array.isArray(cookies) && cookies.length) writeProviderSessionValue('kugou', 'cookie', cookies.join('; '));
 
     const payload = response?.data || response?.body?.data || response?.body || response;
     const token = payload?.token;
-    const userId = payload?.userid ?? payload?.user_id;
+    const userId = payload?.userid ?? payload?.user_id ?? payload?.userId;
     const dfid = payload?.dfid;
     if (token) writeProviderSessionValue('kugou', 'token', String(token));
     if (userId) writeProviderSessionValue('kugou', 'userid', String(userId));
@@ -464,6 +468,37 @@ export const requestKugou = async <T = unknown>(operation: KugouOperation, param
     if (!base) {
         throw new OnlineProviderError('unavailable', KUGOU_API_BASE_MISSING, 'kugou');
     }
+
+    // 本地登录：酷狗的接口代码就内置在 App 里（Android 是 src/nativeBridge/api/kugou.js + 原生
+    // OkHttp，网页版是 Folia Bridge 扩展），凭据也留在原生的 cookie 库，请求不出网。
+    // API base 写成 `extension` 就是这个意思 —— 没有这一段，它会被当成真地址拼到
+    // `https://localhost/extension/...` 上，WebView 自己的服务器回一个 index.html，
+    // 于是「二维码加载失败」「歌单拉不到」全是同一个根因。
+    if (isFoliaExtensionBridgeConfigured(base)) {
+        try {
+            const bridged = await requestFoliaExtension<any>({
+                provider: 'kugou',
+                operation,
+                method: 'GET',
+                params,
+            });
+            if (bridged?.__foliaBridgeError) {
+                if (bridged.__foliaBridgeError === 'AUTH_REQUIRED') {
+                    throw new OnlineProviderError('auth-required', bridged.message || 'KuGou login required', 'kugou', bridged);
+                }
+                if (bridged.__foliaBridgeError === 'UNSUPPORTED') {
+                    throw new OnlineProviderError('unsupported', bridged.message || `KuGouMusicApi has no ${operation} route`, 'kugou', bridged);
+                }
+                throw new OnlineProviderError('network', bridged.message || bridged.__foliaBridgeError, 'kugou', bridged);
+            }
+            persistWebSession(bridged);
+            return bridged as T;
+        } catch (error) {
+            if (error instanceof OnlineProviderError) throw error;
+            throw toKugouProviderError(operation, error);
+        }
+    }
+
     const execute = async (targetOperation: KugouOperation, targetParams: KugouParams): Promise<any> => {
         const query = new URLSearchParams();
         Object.entries(targetParams).forEach(([key, value]) => {
