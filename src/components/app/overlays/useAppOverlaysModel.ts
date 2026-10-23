@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { currentTime, lyricCurrentTime } from '../../../stores/motionSignals';
 import { useAppViewStore } from '../../../stores/useAppViewStore';
+import { isCapacitorAndroid } from '../../../platform/runtime';
 import { useAppChromeStore } from '../../../stores/useAppChromeStore';
 import { useSearchNavigationStore } from '../../../stores/useSearchNavigationStore';
 import { useThemeSettingsStore } from '../../../stores/useThemeSettingsStore';
@@ -34,6 +35,7 @@ const MEMORY_MONITOR_SHORTCUT_LABEL = 'Alt+Shift+M';
 export const useAppOverlaysModel = (deps: AppOverlaysDeps): AppOverlaysModel => {
     const { t } = useTranslation();
     const currentView = useAppViewStore(state => state.view);
+    const isPanelOpen = useAppViewStore(state => state.isPanelOpen);
     const isPlayerChromeHidden = useAppChromeStore(state => state.isPlayerChromeHidden);
     const isDevDebugOverlayVisible = useAppChromeStore(state => state.isDevDebugOverlayVisible);
     const isMemoryMonitorVisible = useAppChromeStore(state => state.isMemoryMonitorVisible);
@@ -84,6 +86,8 @@ export const useAppOverlaysModel = (deps: AppOverlaysDeps): AppOverlaysModel => 
     return useMemo(() => buildAppOverlaysModel({
         ...deps,
         currentView,
+        isPanelOpen,
+        isCapacitorAndroid: isCapacitorAndroid(),
         isSearchOpen,
         isDaylight,
         isDevDebugOverlayVisible,
@@ -120,6 +124,7 @@ export const useAppOverlaysModel = (deps: AppOverlaysDeps): AppOverlaysModel => 
     }), [
         ...Object.values(deps),
         currentView,
+        isPanelOpen,
         isSearchOpen,
         isDaylight,
         isDevDebugOverlayVisible,

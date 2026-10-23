@@ -38,6 +38,10 @@ export type AppOverlaysModel = {
 type AppOverlaysAmbient = {
 
     currentView: FloatingControlsProps['currentView'];
+    /** 播放面板（歌曲卡）开着。安卓上它几乎占满窄屏，与底部浮层同高一排，需要互相让位（见下面两处）。 */
+    isPanelOpen: boolean;
+    /** 安卓原生运行时。底排让位只在安卓做：桌面窗口够宽，胶囊居中、卡片在左、手柄在右，本来不相撞。 */
+    isCapacitorAndroid: boolean;
     isSearchOpen: boolean;
     isDaylight: boolean;
     isDevDebugOverlayVisible: boolean;
@@ -126,6 +130,8 @@ type BuildAppOverlaysModelParams = AppOverlaysAmbient & AppOverlaysDeps;
 // Builds the full overlay model, including detail overlays and floating playback controls.
 export const buildAppOverlaysModel = ({
     currentView,
+    isPanelOpen,
+    isCapacitorAndroid,
     isSearchOpen,
     theme,
     isDaylight,
@@ -189,7 +195,9 @@ export const buildAppOverlaysModel = ({
     // Gated on stageTrackPillOnScreen (computed in App: display mode plus which page allows the
     // card) rather than on the view directly, so the countdown that feeds the "up next" preview
     // and the card that shows it can never disagree about where the card lives.
-    nowPlayingToast: stageTrackPillOnScreen && currentSong
+    // 安卓上面板开着时不发这张卡：卡片（左）、悬浮胶囊（中）、面板手柄（右）共用同一条底线，
+    // 窄屏上三者必然相撞；面板里已经有同一首歌的头部与控制，卡片是重复信息，让它等面板关了再来。
+    nowPlayingToast: stageTrackPillOnScreen && currentSong && !(isPanelOpen && isCapacitorAndroid)
         ? {
             song: {
                 title: currentSong.name || '',
@@ -290,7 +298,9 @@ export const buildAppOverlaysModel = ({
             secondaryColor: 'var(--text-secondary)',
             theme,
             isDaylight,
-            isHidden: currentView === 'player' && isPlayerChromeHidden,
+            // 安卓上面板开着时胶囊也藏起来（与 isPlayerChromeHidden 同一条隐藏通道）：它在播放页只剩
+            // 进度，与面板手柄（右下圆钮）同高相撞；面板关掉即恢复，拖动条位置设置不受影响。
+            isHidden: currentView === 'player' && (isPlayerChromeHidden || (isPanelOpen && isCapacitorAndroid)),
             hideControlBar: shouldHidePlayerProgressBar,
             slotPrimary: playerControlSlotPrimary,
             slotSecondary: playerControlSlotSecondary,
