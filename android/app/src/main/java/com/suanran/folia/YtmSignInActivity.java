@@ -3,6 +3,7 @@ package com.suanran.folia;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -26,6 +27,7 @@ import android.widget.TextView;
 import androidx.appcompat.app.AppCompatActivity;
 
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -56,6 +58,8 @@ public class YtmSignInActivity extends AppCompatActivity {
     private static final String SIGNED_IN_COOKIE = "SAPISID";
     /** 自动交接漏检兜底的轮询间隔（毫秒），取值理由见 signInPoll 的注释。 */
     private static final long SIGN_IN_POLL_MS = 2000L;
+    /** 轮询要连续命中几次自动交接条件才真的交接，取值理由见 signInPoll 的注释。 */
+    private static final int AUTO_HAND_OVER_HITS_NEEDED = 2;
 
     /** 结果回调。静态是因为插件要从它的那一边起这座 Activity；用完立刻清掉。 */
     public interface Listener {
@@ -79,10 +83,12 @@ public class YtmSignInActivity extends AppCompatActivity {
     private boolean pageErrorShown = false;
     private String userAgent = "";
     private boolean handedOver = false;
+    /** 轮询连续命中自动交接条件的次数：没连续攒够 AUTO_HAND_OVER_HITS_NEEDED 次不交接。 */
+    private int autoHandOverHits = 0;
 
     private final Handler signInPollHandler = new Handler(Looper.getMainLooper());
     /**
-     * 每 SIGN_IN_POLL_MS 查一次登录态，命中就自动交接。
+     * 每 SIGN_IN_POLL_MS 查一次登录态，条件齐了就自动交接。
      *
      * 为什么需要它：原先自动交接只挂在 onPageFinished 上，可登录走完回到
      * music.youtube.com 是单页应用内的跳转，未必再有整页加载事件；就算有，那一次
@@ -92,14 +98,25 @@ public class YtmSignInActivity extends AppCompatActivity {
      * cookie 只是一次字符串拼装、开销可忽略，而用户登完后多等的上限就是一个间隔；
      * 起点同样延后一个间隔，让整页加载那条快路（onPageFinished）先行，轮询只做兜底。
      * 交接或销毁时停表（见 handOver / onDestroy），不留尾巴。
+     *
+     * 轮询比 onPageFinished 多一道稳定性要求：条件（见 autoHandOverReady）要连续
+     * 命中 AUTO_HAND_OVER_HITS_NEEDED 次才交接，中间有一次没命中就清零重数。一次
+     * 命中可能只是重定向途中的瞬态，连续两次横跨一个轮询间隔，说明登录态真的稳住了；
+     * 代价是登完后最多再多等一个间隔（约 2 秒），换的是不抢关（抢关的教训见
+     * autoHandOverReady 的注释）。
      */
     private final Runnable signInPoll = new Runnable() {
         @Override
         public void run() {
             if (handedOver) return;
-            if (isSignedIn()) {
-                finishWithCookies();
-                return;
+            if (autoHandOverReady()) {
+                autoHandOverHits++;
+                if (autoHandOverHits >= AUTO_HAND_OVER_HITS_NEEDED) {
+                    finishWithCookies();
+                    return;
+                }
+            } else {
+                autoHandOverHits = 0;
             }
             signInPollHandler.postDelayed(this, SIGN_IN_POLL_MS);
         }
@@ -145,8 +162,10 @@ public class YtmSignInActivity extends AppCompatActivity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 if (!pageErrorShown) hideStatus();
-                // 登录一完成就直接带着 cookie 回去，不必再让用户点「完成」。
-                if (isSignedIn()) {
+                // 登录一完成就直接带着 cookie 回去，不必再让用户点「完成」。但只在
+                // 页面条件也对上时才收（autoHandOverReady）：还在 Google 登录域上
+                // 的整页事件说明流程没走完，那时 cookie 里有 SAPISID 也不算登完。
+                if (autoHandOverReady()) {
                     finishWithCookies();
                 }
             }
@@ -255,6 +274,35 @@ public class YtmSignInActivity extends AppCompatActivity {
         return cookie != null && cookie.contains(SIGNED_IN_COOKIE + "=");
     }
 
+    /** 当前页是不是 YouTube 自己的页面（youtube.com 及其子域，含 music. 与 www.）。 */
+    private boolean isOnYouTubePage() {
+        if (webView == null) return false;
+        String url = webView.getUrl();
+        if (url == null || url.isEmpty()) return false;
+        String host = Uri.parse(url).getHost();
+        if (host == null) return false;
+        String normalized = host.toLowerCase(Locale.ROOT);
+        return normalized.equals("youtube.com") || normalized.endsWith(".youtube.com");
+    }
+
+    /**
+     * 自动交接（onPageFinished 与轮询共用）的完整条件：人在 YouTube 自己的页面上，
+     * 且 cookie 里已有登录标记。两个条件缺一不可，关键在页面这一道闸门。
+     *
+     * 为什么光看 cookie 不够：Google 登录流程里，账号密码一提交，就会先经过
+     * youtube 域名种下 SAPISID 等 cookie，可流程本身还没走完 —— 后面可能还有验证、
+     * 确认页，那时人站在 accounts.google.com 上。旧判定只看 cookie，任一自动触发点
+     * 在这一刻命中就把窗口抢关，交回的会话是半成品，Web 侧校验自然过不去，用户
+     * 明明刚输完密码就被判「未完成」（0.7.22.3 真机实证，轮询把命中概率放大后踩中）。
+     * 所以自动路径必须确认 WebView 已经回到 YouTube 自己的页面：登录域
+     * （accounts.google.com 等）不满足 host 条件，在那里停多久都不许自动交接。
+     * 手动路径（「完成」按钮、返回键）不走这里 —— 那是用户亲眼看着页面做的决定，
+     * 保持原语义即时生效。
+     */
+    private boolean autoHandOverReady() {
+        return isOnYouTubePage() && isSignedIn();
+    }
+
     private void finishWithCookies() {
         CookieManager.getInstance().flush();
         handOver(readCookies());
@@ -296,8 +344,9 @@ public class YtmSignInActivity extends AppCompatActivity {
     private void handOver(String cookie) {
         if (handedOver) return;
         handedOver = true;
-        // 交接是唯一的出口：到这里就停轮询，别让它在 finish 之后还空转。
+        // 交接是唯一的出口：到这里就停轮询、清命中计数，别让它在 finish 之后还空转。
         signInPollHandler.removeCallbacks(signInPoll);
+        autoHandOverHits = 0;
         Listener callback = listener;
         listener = null;
         if (callback == null) {
@@ -339,6 +388,7 @@ public class YtmSignInActivity extends AppCompatActivity {
         if (!handedOver) handOver(null);
         // 轮询停表在 handOver 里已做一遍，这里再兜一遍，防任何绕开 handOver 的销毁路径。
         signInPollHandler.removeCallbacks(signInPoll);
+        autoHandOverHits = 0;
         if (webView != null) {
             webView.setWebViewClient(new WebViewClient());
             webView.destroy();
