@@ -5,6 +5,7 @@ import { diagnosticLine, formatDiagnosticClock } from '../login/loginDiagnosticR
 import { isNativeHttpFetchAvailable, createNativeFetch } from '../../../services/nativeHttpFetch';
 import { requestYtmNativeSignIn, type YtmNativeSession } from './ytmNative';
 import { accountFromYtmAccountsList, ytmSignedInMarkOf } from './ytmAccountsList';
+import { ytmHomepageSignedInOf } from './ytmHomepage';
 
 /**
  * 安卓 WebView 里这套页内协议层能不能用。
@@ -57,8 +58,41 @@ const loadInnertube = async () => {
          * 自己的原生 OkHttp 桥（见 services/nativeHttpFetch）。youtubei.js 支持注入
          * fetch，官方给的浏览器用法也正是「自己实现一个 fetch 转发到代理」。
          */
-        fetch: createNativeFetch(),
+        fetch: createYtmApiFetch(),
     });
+};
+
+/*
+ * 给 youtubei.js 的请求补上它在 WebView 里缺的那个 Origin 头。
+ *
+ * youtubei.js 的 HTTPClient 只在「服务端」那一份（Platform.shim.server）里才给
+ * 接口请求设 Origin，WebView 里跑的是浏览器那一份，这头就缺了。可它算登录签名
+ * SAPISIDHASH 时用的来源是写死的 https://www.youtube.com —— 签名里带着来源、
+ * 请求里却没有，服务端无从核对就按游客答（真机实证：cookie 明明是真登录、
+ * 用户在登录窗里看到了自己的头像，接口两路却都判游客）。桌面端跑的是主进程那
+ * 一份、Origin 一直在场，所以同一把库、同一套 cookie 在那边是通的。
+ * 这里在我们自己的 fetch 层把头补齐：只补 youtubei 接口、只在头还不在时补，
+ * 值与签名用的来源用同一个常量，两边永远对得上。
+ */
+const YTM_API_ORIGIN = 'https://www.youtube.com';
+
+const createYtmApiFetch = (): typeof fetch => {
+    const base = createNativeFetch();
+    return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const rawUrl = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        let isApiCall = false;
+        try {
+            const target = new URL(rawUrl);
+            isApiCall = (target.hostname === 'youtubei.googleapis.com' || target.hostname.endsWith('youtube.com'))
+                && target.pathname.includes('/youtubei/');
+        } catch {
+            isApiCall = false;
+        }
+        if (!isApiCall) return base(input, init);
+        const headers = new Headers(init?.headers ?? (typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined));
+        if (!headers.has('origin')) headers.set('origin', YTM_API_ORIGIN);
+        return base(input, { ...init, headers });
+    }) as typeof fetch;
 };
 
 const getSession = async (): Promise<any> => {
@@ -102,17 +136,21 @@ const requireSignIn = (operation: string) => {
  * 契约见 src/types/onlineMusic.ts 的 ProviderUser：id / nickname / avatarUrl? / vipType?。
  */
 /*
- * 最近一次「登录进去的是谁」的结论：登录确认之后账号没读出来（account-refresh-failed）
- * 时，诊断报告里 YouTube Music 这一段就靠它说出卡在哪。与另一家同一套写法。
+ * 最近一次「登录进去的是谁」的核查记录：一轮核查有好几个信号（getInfo、
+ * accounts_list、首页），结论可能互相矛盾，诊断报告要能逐条对着看，所以记一组
+ * 而不是只留最后一句。登录确认之后账号没读出来（account-refresh-failed）时，
+ * 报告里 YouTube Music 这一段就靠它说出卡在哪。
  */
-let lastLoginStatusCheck: LoginDiagnosticLine | null = null;
+let loginStatusCheckLines: LoginDiagnosticLine[] = [];
 const noteLoginStatusCheck = (summary: LoginDiagnosticLine): void => {
-    lastLoginStatusCheck = diagnosticLine`${formatDiagnosticClock(Date.now())} ${summary}`;
+    loginStatusCheckLines = [...loginStatusCheckLines, diagnosticLine`${formatDiagnosticClock(Date.now())} ${summary}`].slice(-8);
 };
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 const readSignedInUser = async (): Promise<ProviderUser | null> => {
+    // 每查一次是一组新的行：上一轮的结论别混进这一轮的报告。
+    loginStatusCheckLines = [];
     if (!signedIn) {
         noteLoginStatusCheck(diagnosticLine`no cookie is held: nobody signed in`);
         return null;
@@ -145,53 +183,119 @@ const readSignedInUser = async (): Promise<ProviderUser | null> => {
     /*
      * 走到这里有两种情形：getInfo 抛了错（它的解析与平台现在的答复对不上时必抛一个
      * 没头没脑的 'Page contents not found'，真机上必现），或者它读到了却没读出名字。
-     * 这都不等于没登录 —— 改走桌面端那条拿真账号量过的路：直接要 accounts_list 的
-     * 原始答复，看平台自己标的 logged_in（判据见 ytmAccountsList）。标记说游客才是
-     * 真的没登录；标记说登录了，名字拿不到也算登录，称呼从 handle 退到平台名；
-     * 没有标记就维持先前的结论，不编。
+     * 这都不等于没登录 —— 再往下走备用信号（见 readUserFromFallbackProbes）。
      */
-    return readUserFromAccountsList(yt, getInfoError);
+    return readUserFromFallbackProbes(yt, getInfoError);
 };
 
-/** 备用校验：accounts_list 的原始答复说登录了没有、是谁（判据见 ytmAccountsList）。 */
-const readUserFromAccountsList = async (yt: any, getInfoError: unknown): Promise<ProviderUser | null> => {
+type AccountsListProbe =
+    | { verdict: 'signed-in'; user: ProviderUser }
+    | { verdict: 'guest' | 'unknown'; error: unknown };
+
+/** 备用信号一：accounts_list 的原始答复说登录了没有、是谁（判据见 ytmAccountsList）。 */
+const probeAccountsList = async (yt: any): Promise<AccountsListProbe> => {
     let data: unknown;
     try {
         const response: any = await yt.actions.execute('/account/accounts_list', { client: 'YTMUSIC', parse: false });
         data = response?.data;
     } catch (error) {
-        noteLoginStatusCheck(diagnosticLine`accounts_list check failed too: ${messageOf(error)}`);
-        console.warn('[Ytm] Could not read the accounts list either', error);
-        // 两条路都断时把先前那条的错交出去（它离用户碰到的现象更近），别编一个结论。
-        throw getInfoError ?? error;
+        noteLoginStatusCheck(diagnosticLine`accounts_list check failed: ${messageOf(error)}`);
+        console.warn('[Ytm] Could not read the accounts list', error);
+        return { verdict: 'unknown', error };
     }
     const mark = ytmSignedInMarkOf(data);
+    if (mark === '1') {
+        const account = accountFromYtmAccountsList(data);
+        const user: ProviderUser = {
+            id: account?.id || 'ytm',
+            nickname: account?.nickname || 'YouTube Music',
+            avatarUrl: account?.avatarUrl,
+        };
+        noteLoginStatusCheck(diagnosticLine`accounts_list confirmed the sign-in (logged_in=1, name ${account?.nickname ? 'present' : 'absent'})`);
+        return { verdict: 'signed-in', user };
+    }
     if (mark === '0') {
-        // 平台明说这次是按游客答的：cookie 没被认下，这才是真的没登录。
-        noteLoginStatusCheck(diagnosticLine`accounts_list answered as a guest (logged_in=0): the sign-in was not taken`);
-        return null;
+        // 只是这一路的结论：这次接口请求是按游客答的。它先记下来，不再一票否决。
+        noteLoginStatusCheck(diagnosticLine`accounts_list answered as a guest (logged_in=0)`);
+        return { verdict: 'guest', error: null };
     }
-    if (mark !== '1') {
-        noteLoginStatusCheck(diagnosticLine`accounts_list carried no logged_in mark: cannot tell who is signed in`);
-        if (getInfoError) throw getInfoError;
-        return null;
+    noteLoginStatusCheck(diagnosticLine`accounts_list carried no logged_in mark: cannot tell who is signed in`);
+    return { verdict: 'unknown', error: null };
+};
+
+/**
+ * 备用信号二（铁证）：带着交回的 cookie 打开 music.youtube.com 首页，读页面自己
+ * 写的登录结论（判据见 ytmHomepage）。这一路不靠接口签名 —— 接口那两路被签名
+ * 认不下连累时，它读到的是与用户在登录窗里看到的头像同一份事实。
+ */
+const probeHomepage = async (): Promise<'signed-in' | 'guest' | 'unknown'> => {
+    if (!signedIn) return 'unknown';
+    try {
+        const response = await createNativeFetch()('https://music.youtube.com/', {
+            headers: { cookie: signedIn.cookie, 'user-agent': signedIn.userAgent },
+        });
+        if (!response.ok) {
+            noteLoginStatusCheck(diagnosticLine`homepage check answered HTTP ${response.status}: cannot tell`);
+            return 'unknown';
+        }
+        const mark = ytmHomepageSignedInOf(await response.text());
+        if (mark === true) {
+            noteLoginStatusCheck(diagnosticLine`homepage says signed in (its own LOGGED_IN flag is true)`);
+            return 'signed-in';
+        }
+        if (mark === false) {
+            noteLoginStatusCheck(diagnosticLine`homepage says guest (its own LOGGED_IN flag is false)`);
+            return 'guest';
+        }
+        noteLoginStatusCheck(diagnosticLine`homepage carried no LOGGED_IN flag: cannot tell`);
+        return 'unknown';
+    } catch (error) {
+        noteLoginStatusCheck(diagnosticLine`homepage check failed: ${messageOf(error)}`);
+        return 'unknown';
     }
-    const account = accountFromYtmAccountsList(data);
-    const user: ProviderUser = {
-        id: account?.id || 'ytm',
-        nickname: account?.nickname || 'YouTube Music',
-        avatarUrl: account?.avatarUrl,
-    };
-    noteLoginStatusCheck(diagnosticLine`accounts_list confirmed the sign-in (logged_in=1, name ${account?.nickname ? 'present' : 'absent'})`);
-    return user;
+};
+
+/*
+ * 备用信号的合并判定：**任一可信信号确认登录即通过**。
+ *
+ * 为什么不再让 accounts_list 一票否决：它和 getInfo 走的是同一条接口签名路，
+ * 签名没被认下时两路会一起说「游客」，而 cookie 本身是真的（真机实证：用户在
+ * 登录窗里登完、关窗前是自己的头像，两路仍判游客）。首页那一路不靠签名，它说
+ * 登录了，就不许接口那路把人否掉；它说游客、且没有任何一路说登录，才是真没登。
+ * 三路都说不清时维持原判：先前那条的错抛出去（它离用户碰到的现象更近），不编。
+ */
+const readUserFromFallbackProbes = async (yt: any, getInfoError: unknown): Promise<ProviderUser | null> => {
+    const list = await probeAccountsList(yt);
+    if (list.verdict === 'signed-in') return list.user;
+    const homepage = await probeHomepage();
+    if (homepage === 'signed-in') {
+        // 首页是铁证：登录成立。只是账号名这一路读不到，称呼退到平台名、id 退到
+        // 平台 id（与 accounts_list 读到登录却没名字时的退法一致），不假装读到了。
+        noteLoginStatusCheck(diagnosticLine`homepage overrules accounts_list (${list.verdict}): signed in, name unavailable from this signal`);
+        return { id: 'ytm', nickname: 'YouTube Music' };
+    }
+    if (homepage === 'guest') return null;
+    if (list.verdict === 'guest') return null;
+    if (getInfoError) throw getInfoError;
+    if (list.error) throw list.error;
+    return null;
 };
 
 /** 登录诊断报告里 YouTube Music 那一段。 */
 export const getYtmLoginDiagnostics = (): LoginDiagnosticLine[] => {
     const lines: LoginDiagnosticLine[] = [];
     lines.push(diagnosticLine`cookie: ${signedIn ? 'held' : 'none'}`);
+    if (signedIn) {
+        /*
+         * 交回的 cookie 里有哪些键：**只列名字、绝不列值**。下次真机报告要能直接
+         * 看出关键的那几颗（SAPISID、__Secure-3PSID、LOGIN_INFO 等）在不在交回的
+         * 这串里 —— 在，断点就在校验/签名那一层；不在，断点回到原生收割那一层。
+         */
+        const names = [...new Set(signedIn.cookie.split(';').map((pair) => pair.split('=')[0]?.trim()).filter((name) => !!name))];
+        lines.push(diagnosticLine`cookie keys: ${names.join(', ')}`);
+    }
     lines.push(diagnosticLine`in-page transport: ${isYtmInPageAvailable() ? 'available' : 'not available'}`);
-    if (lastLoginStatusCheck) lines.push(lastLoginStatusCheck);
+    lines.push(...loginStatusCheckLines);
     return lines;
 };
 
