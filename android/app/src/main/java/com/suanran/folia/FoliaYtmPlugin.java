@@ -33,6 +33,8 @@ public class FoliaYtmPlugin extends Plugin {
     private static final String TAG = "FoliaYtm";
     /** 与桌面端一致：一次登录最多等十分钟，超时就明说，别让界面一直转。 */
     private static final long ATTEMPT_MS = 10 * 60 * 1000L;
+    /** 是否已有一回登录在途。交结果靠 Activity 的静态 listener（只能挂一份），所以必须拦并发，见 signIn。 */
+    private final AtomicBoolean signInInFlight = new AtomicBoolean(false);
 
     @PluginMethod
     public void status(PluginCall call) {
@@ -55,20 +57,33 @@ public class FoliaYtmPlugin extends Plugin {
             call.resolve(failure("unavailable", "The YouTube Music sign-in has no context to start from"));
             return;
         }
+        /*
+         * 防并发劫持：Activity 交结果靠一个静态 listener，后起的 start 会把它覆盖掉 ——
+         * 先开的那座交接时喊到的已是后来者的回调，它自己那份调用只能等十分钟超时，
+         * 表现为「登录窗一闪而过 / 开了又自己关、结果是 cancelled」。所以在途时第二
+         * 次调用直接明说 busy，根本不许它碰 listener。
+         */
+        if (!signInInFlight.compareAndSet(false, true)) {
+            call.resolve(failure("busy", "A YouTube Music sign-in is already in progress"));
+            return;
+        }
         call.setKeepAlive(true);
         final AtomicBoolean settled = new AtomicBoolean(false);
         final Handler handler = new Handler(Looper.getMainLooper());
         handler.postDelayed(() -> {
             if (settled.compareAndSet(false, true)) {
+                signInInFlight.set(false);
                 Log.w(TAG, "the sign-in did not finish in time");
                 call.resolve(failure("sign-in-failed", "The YouTube Music sign-in was not finished in time"));
             }
         }, ATTEMPT_MS);
 
-        YtmSignInActivity.start(context, new YtmSignInActivity.Listener() {
+        try {
+            YtmSignInActivity.start(context, new YtmSignInActivity.Listener() {
             @Override
             public void onDone(String cookie, String userAgent) {
                 if (!settled.compareAndSet(false, true)) return;
+                signInInFlight.set(false);
                 handler.removeCallbacksAndMessages(null);
                 JSObject session = new JSObject();
                 session.put("cookie", cookie);
@@ -84,10 +99,20 @@ public class FoliaYtmPlugin extends Plugin {
             @Override
             public void onCancelled() {
                 if (!settled.compareAndSet(false, true)) return;
+                signInInFlight.set(false);
                 handler.removeCallbacksAndMessages(null);
                 call.resolve(failure("cancelled", "The YouTube Music sign-in was cancelled"));
             }
-        });
+            });
+        } catch (RuntimeException e) {
+            // 起窗这一步就抛了：把在途标记和超时回调一并收掉，别让 busy 锁死后续所有登录。
+            if (settled.compareAndSet(false, true)) {
+                signInInFlight.set(false);
+                handler.removeCallbacksAndMessages(null);
+                Log.w(TAG, "the sign-in screen could not be started", e);
+                call.resolve(failure("sign-in-failed", "The YouTube Music sign-in screen could not be started"));
+            }
+        }
     }
 
     private static JSObject failure(String code, String message) {

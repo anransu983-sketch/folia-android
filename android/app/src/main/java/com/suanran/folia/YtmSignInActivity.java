@@ -1,6 +1,7 @@
 package com.suanran.folia;
 
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
@@ -11,10 +12,14 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -69,6 +74,9 @@ public class YtmSignInActivity extends AppCompatActivity {
     }
 
     private WebView webView;
+    private TextView statusLabel;
+    /** 当前这一页是否已报过主框架错误：报过就别让随后的 onPageFinished 把错误文字藏掉。 */
+    private boolean pageErrorShown = false;
     private String userAgent = "";
     private boolean handedOver = false;
 
@@ -128,16 +136,51 @@ public class YtmSignInActivity extends AppCompatActivity {
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
         webView.setWebViewClient(new WebViewClient() {
             @Override
+            public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                // 每开一页先给一行加载提示：页面没出来时用户至少知道还在加载，不是卡死。
+                pageErrorShown = false;
+                showStatus("正在加载…");
+            }
+
+            @Override
             public void onPageFinished(WebView view, String url) {
+                if (!pageErrorShown) hideStatus();
                 // 登录一完成就直接带着 cookie 回去，不必再让用户点「完成」。
                 if (isSignedIn()) {
                     finishWithCookies();
                 }
             }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                // 只管主框架：子资源（图片/脚本）失败不该把整页判死。
+                if (request == null || !request.isForMainFrame()) return;
+                pageErrorShown = true;
+                showStatus("页面加载失败（错误 " + error.getErrorCode() + "：" + error.getDescription() + "）\n"
+                    + "请检查网络或代理后，点上方「完成」重试，或点「取消」退出。");
+            }
+
+            @Override
+            public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) {
+                if (request == null || !request.isForMainFrame()) return;
+                int code = response.getStatusCode();
+                if (code < 400) return;
+                pageErrorShown = true;
+                showStatus("页面加载失败（HTTP " + code + " " + response.getReasonPhrase() + "）\n"
+                    + "请检查网络或代理后，点上方「完成」重试，或点「取消」退出。");
+            }
         });
-        webView.setLayoutParams(new LinearLayout.LayoutParams(
+        // WebView 与状态字同住一格：加载/出错时状态字压在页面中央，白屏也要有字可看
+        // （真机实证：页面加载不出来时整片空白、无任何提示，用户无从判断发生了什么）。
+        FrameLayout pageArea = new FrameLayout(this);
+        pageArea.setLayoutParams(new LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-        root.addView(webView);
+        webView.setLayoutParams(new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        pageArea.addView(webView);
+        statusLabel = buildStatusLabel();
+        pageArea.addView(statusLabel);
+        root.addView(pageArea);
 
         setContentView(root);
         webView.loadUrl(START_URL);
@@ -179,6 +222,32 @@ public class YtmSignInActivity extends AppCompatActivity {
         button.setBackgroundColor(Color.TRANSPARENT);
         button.setOnClickListener(onClick);
         return button;
+    }
+
+    /** 压在页面中央的一块状态字：加载中报进度、主框架出错报错误，都只用它，不另造界面。 */
+    private TextView buildStatusLabel() {
+        TextView label = new TextView(this);
+        label.setTextColor(Color.WHITE);
+        label.setTextSize(14);
+        label.setGravity(Gravity.CENTER);
+        int pad = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16, getResources().getDisplayMetrics());
+        label.setPadding(pad, pad, pad, pad);
+        label.setBackgroundColor(Color.parseColor("#222222"));
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.gravity = Gravity.CENTER;
+        label.setLayoutParams(params);
+        label.setVisibility(View.GONE);
+        return label;
+    }
+
+    private void showStatus(String text) {
+        statusLabel.setText(text);
+        statusLabel.setVisibility(View.VISIBLE);
+    }
+
+    private void hideStatus() {
+        statusLabel.setVisibility(View.GONE);
     }
 
     private boolean isSignedIn() {
