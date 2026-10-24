@@ -48,7 +48,7 @@ export type YtmBridgeStream = {
 // 桥的答复形状是设计稿 §4.2 的契约：成功在 stream 里、失败在 error 里，别拍平——
 // 拍平读会把每个成功都读成「形状不对」。
 type YtmBridgeResolveAnswer =
-    | { ok: true; stream: { url: string; route: string; userAgent?: string; itag?: number; bitrate?: number; level?: string } }
+    | { ok: true; stream: { url: string; route: string; userAgent?: string; egress?: string; itag?: number; bitrate?: number; level?: string } }
     | { ok: false; error: { code: string; message: string; attempts?: YtmBridgeAttempt[] } };
 
 type YtmBridgeStatus = { ready: boolean; visitorData: string; egress: string };
@@ -181,6 +181,12 @@ export const resolveYtmStreamViaBridge = async (input: {
     }
     lastResolveLine = `last resolve: ok via ${stream.route}${stream.itag ? ` (itag ${stream.itag})` : ''}, ${Date.now() - startedAt}ms`;
     console.log(`[Ytm] InnerTube bridge resolved a stream via ${stream.route}${stream.itag ? ` (itag ${stream.itag})` : ''}`);
+    // egress 矩阵平时只躺在桥的 status 诊断块里，点播控制台粘日志时带不出来；
+    // 桥随每次成功答复把本次的原文带回，这里用同一个日志通道单独打一行。
+    // 旧桥答复没有这一项就不打、不报错。
+    if (typeof stream.egress === 'string' && stream.egress) {
+        console.log(`[Ytm] InnerTube egress ${stream.egress}`);
+    }
     return {
         url: stream.url,
         route: stream.route,

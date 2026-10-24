@@ -486,6 +486,10 @@ public class FoliaInnerTubePlugin extends Plugin {
         // 取流会被拒（真机实证：回环代理的硬编码 Chrome UA 换上后服务端回 502 空包，
         // 元素报 Format error）。Web 侧经回环代理的 headers 通道把它带过去。
         stream.put("userAgent", client.userAgent);
+        // 本次 resolve 刚跑完的 egress 矩阵原文随答复带回（checkEgress 刚写进
+        // lastEgress 的那个值，不是旧缓存）：它平时只躺在 status 诊断块里，
+        // 点播控制台粘不出来，Web 侧收到后会单独打一行 [Ytm] InnerTube egress。
+        stream.put("egress", lastEgress);
         stream.put("itag", format.optInt("itag", 0));
         stream.put("bitrate", bitrateOf(format));
         stream.put("mimeType", format.optString("mimeType", ""));
