@@ -19,6 +19,7 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 
 import okhttp3.MediaType;
@@ -42,9 +43,10 @@ import okhttp3.ResponseBody;
  * 出口纪律（重要）：取链与取流必须走同一个网络出口——googlevideo 的直链绑请求 IP，
  * 桥若自己另走一条路（自设代理、单独分流），取回来的链喂给播放器就是一张 403。所以
  * 这里的 OkHttp 不设任何代理、跟设备网络栈走；Web 侧拿到直链后也是经同一套原生栈的
- * 回环代理（LocalAudioServer）去取流。选中直链后桥内先自己发一个字节的 Range 请求
- * 自检（见 resolve 里的 egress 检查）：链在原生栈这里就拉不动，就判这一级失败继续
- * 回退，绝不把一条注定 403 的链交出去。
+ * 回环代理（LocalAudioServer）去取流。取流能不能通由代理的第一块有界取流当场
+ * 证明，桥不在点播关键路径上做阻塞自检；只在进程冷启动后的第一次交付之后，
+ * 异步补跑一次 egress 矩阵诊断（见 runEgressDiagnostic），结果供 status 与
+ * 后续 resolve 答复的 egress 字段看。
  *
  * 客户端表：版本号 / UA / 设备字段逐字抄本仓锁定的 youtubei.js 18.1.0 的
  * `Constants.CLIENTS`；API key 是各官方 App 内嵌的公开客户端密钥（社区公开记录，
@@ -156,8 +158,11 @@ public class FoliaInnerTubePlugin extends Plugin {
     private final ReentrantLock resolveLock = new ReentrantLock();
     /** 匿名 visitorData 缓存（只存内存，冷启重取）；登录那份与 cookie 同源，每次登录链现换、不缓存。 */
     private volatile String anonymousVisitorData;
-    /** 最近一次出口自检的结论，给 status()/诊断看：matrix[...] / failed(...) / not run。 */
+    /** 最近一次 egress 异步诊断的结论，给 status()/诊断与后续 resolve 答复看；还没跑完是 not run。 */
     private volatile String lastEgress = "not run";
+    /** egress 诊断一进程只安排一次（冷启动后第一次交付触发）；跑没跑完看 egressDiagnosticDone。 */
+    private final AtomicBoolean egressDiagnosticScheduled = new AtomicBoolean(false);
+    private volatile boolean egressDiagnosticDone = false;
 
     @PluginMethod
     public void status(PluginCall call) {
@@ -314,7 +319,7 @@ public class FoliaInnerTubePlugin extends Plugin {
     private boolean sawLoginGate;
 
     /**
-     * 跑一遍回退链。返回非空 = 成功答复（已含 egress 自检通过）；返回 null 时看
+     * 跑一遍回退链。返回非空 = 成功答复（铸出 formats+URL 即交付，不等任何自检）；返回 null 时看
      * {@link #terminalAnswer}（硬失败成答）与 {@link #sawLoginGate}。软失败只记 attempts。
      */
     private JSObject runChain(String videoId, String quality, Session session, List<JSObject> attempts, long startedAt) {
@@ -330,15 +335,12 @@ public class FoliaInnerTubePlugin extends Plugin {
             Attempt attempt = tryClient(client, videoId, quality, session, visitorData);
             if (attempt.format != null) {
                 JSObject stream = streamOf(client, attempt, signedInRun);
-                if (stream != null) {
-                    JSObject result = new JSObject();
-                    result.put("ok", true);
-                    result.put("stream", stream);
-                    return result;
-                }
-                // streamOf 里 egress 自检没过：这一级作废，自检结论已记进 attempt，转下一级。
-                attempts.add(attemptLine(client, "egress", attempt.detail));
-                continue;
+                JSObject result = new JSObject();
+                result.put("ok", true);
+                result.put("stream", stream);
+                // 交付之后顺手安排一进程一次的 egress 异步诊断（不阻塞本次答复）。
+                scheduleEgressDiagnostic(client, attempt.format.optString("url", ""), videoId, quality);
+                return result;
             }
             attempts.add(attemptLine(client, attempt.failureKind, attempt.detail));
             switch (attempt.failureKind) {
@@ -471,25 +473,21 @@ public class FoliaInnerTubePlugin extends Plugin {
         return attempt;
     }
 
-    /** 选中格式 → 先做出口自检，再组成功答复。自检不过返回 null 并把结论写进 attempt.detail。 */
+    /** 选中格式 → 直接组成功答复（取流能不能通由代理的第一块有界取流当场证明，桥不在关键路径上自检）。 */
     private JSObject streamOf(ClientSpec client, Attempt attempt, boolean signedInRun) {
         JSONObject format = attempt.format;
         String url = format.optString("url", "");
-        String egressProblem = checkEgress(client, url);
-        if (egressProblem != null) {
-            attempt.detail = egressProblem;
-            return null;
-        }
         JSObject stream = new JSObject();
         stream.put("url", url);
         // 取流要带铸链这个客户端的 UA：googlevideo 按铸链时的请求形态认人，换一个 UA
         // 取流会被拒（真机实证：回环代理的硬编码 Chrome UA 换上后服务端回 502 空包，
         // 元素报 Format error）。Web 侧经回环代理的 headers 通道把它带过去。
         stream.put("userAgent", client.userAgent);
-        // 本次 resolve 刚跑完的 egress 矩阵原文随答复带回（checkEgress 刚写进
-        // lastEgress 的那个值，不是旧缓存）：它平时只躺在 status 诊断块里，
-        // 点播控制台粘不出来，Web 侧收到后会单独打一行 [Ytm] InnerTube egress。
-        stream.put("egress", lastEgress);
+        // egress 诊断是冷会话一次性异步跑的（见 runEgressDiagnostic）：跑完过至少
+        // 一次之后，把最新已知结论随答复带回，Web 侧收到后单独打一行
+        // [Ytm] InnerTube egress；还没跑完时不带这一项（TS 那边就不打那行）。
+        // 时序：进程里第一个 resolve 的答复多半没有 egress，后续的必带。
+        if (egressDiagnosticDone) stream.put("egress", lastEgress);
         stream.put("itag", format.optInt("itag", 0));
         stream.put("bitrate", bitrateOf(format));
         stream.put("mimeType", format.optString("mimeType", ""));
@@ -510,42 +508,70 @@ public class FoliaInnerTubePlugin extends Plugin {
     private static final String[] EGRESS_MATRIX_LABELS = { "0-0", "0-1023", "0-", "none", "past1m" };
 
     /**
-     * 出口自检（设计稿 T1 探针的桥内形态）：选中直链后先替播放器把这条链问一遍。
-     * 取链的请求与取流的请求若出口 IP 不一致，googlevideo 按链上绑的 IP 回 403——
-     * 这一步在原生栈里先撞一遍，撞死了就换下一级客户端，而不是把死链交给播放器。
-     * 返回 null = 通过；否则是失败结论（进 attempts 与 status 的 egress 行）。
-     *
-     * 第一行（bytes=0-0）是沿用至今的成败门：200/206 且应答不是文本页才算过，
-     * 不过就返回失败结论换下一级，语义与旧版一致；只有 UA 改了——矩阵五行统一用
-     * 铸链客户端的 UA（旧版基线用 OkHttp 默认 UA，与真实取流不是同一形态）。
-     * 基线过后把其余四行（0-1023 有界小段 / 0- 整段 / 无 Range / 越过 1 MiB 的
-     * 一段）也逐行问完，五行状态码拼成 matrix[...] 记进 lastEgress：2026-08 起
-     * googlevideo 对无界 Range 回 403、对 ANDROID_VR 直链还有约 1 MiB 的取流
-     * 上限（LMS-YouTube #90 实测），一次问全才分得清是哪道门在拦。
-     * **后四行是纯观测，不改变本方法的成败语义**：resolve 只以基线为准，
-     * 它们失败也照样放行，形态只出现在 status/诊断的 egress 行里。
+     * 冷会话一次性 egress 诊断的安排点：进程里第一次有客户端交付成功后调用。
+     * 一进程只安排一次（AtomicBoolean 闸门）；诊断在守护线程里跑，不持
+     * resolveLock、不阻塞交付——它开始时本次 resolve 的答复可能还没回到
+     * Web 侧，这正是「交付之后异步跑」的时序：第一个 resolve 的答复多半
+     * 还带不上 egress（诊断没跑完），从第二个起必带（见 streamOf 的 egress 字段）。
      */
-    private String checkEgress(ClientSpec client, String url) {
-        int baselineCode;
-        try (Response response = egressProbe(client, url, EGRESS_MATRIX_RANGES[0])) {
-            baselineCode = response.code();
-            String type = response.header("Content-Type", "");
-            if (!((baselineCode == 200 || baselineCode == 206) && !type.startsWith("text/"))) {
-                lastEgress = "failed (HTTP " + baselineCode + ")";
-                return "egress: HTTP " + baselineCode;
-            }
-        } catch (IOException | RuntimeException error) {
-            lastEgress = "failed (" + error.getClass().getSimpleName() + ")";
-            return "egress: " + error.getClass().getSimpleName();
+    private void scheduleEgressDiagnostic(ClientSpec winner, String winnerUrl, String videoId, String quality) {
+        if (winnerUrl == null || winnerUrl.isEmpty()) return;
+        if (!egressDiagnosticScheduled.compareAndSet(false, true)) return;
+        Thread thread = new Thread(
+            () -> runEgressDiagnostic(winner, winnerUrl, videoId, quality), "folia-innertube-egress");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    /**
+     * egress 诊断本体（设计稿 T1 探针的演化形态）：对胜出客户端刚交付的那条链
+     * 跑五行 Range 矩阵；胜出者不是 ANDROID_VR 时，再匿名用 ANDROID_VR 给同一
+     * 首歌铸一条链跑它的矩阵作对照（VR 已被标 PO token 门 + ~1 MiB 上限，
+     * 它的矩阵行是下一版决定它去留的证据）。两组结果拼进 lastEgress，形如
+     * `visionos matrix[...] vr matrix[...]`（VR 铸不出链时记 vr matrix[mint-failed]；
+     * 胜出者就是 VR 时只有它自己那组，前缀是它的路线名 android_vr）。
+     * **全程纯诊断**：不交付对照链、不改任何 resolve 的成败，跑出什么都只记事实。
+     */
+    private void runEgressDiagnostic(ClientSpec winner, String winnerUrl, String videoId, String quality) {
+        StringBuilder text = new StringBuilder();
+        text.append(winner.route).append(' ').append(probeMatrix(winner, winnerUrl));
+        if (winner != ANDROID_VR) {
+            String vrUrl = mintForDiagnostic(ANDROID_VR, videoId, quality);
+            text.append(" vr ").append(vrUrl != null ? probeMatrix(ANDROID_VR, vrUrl) : "matrix[mint-failed]");
         }
+        lastEgress = text.toString();
+        egressDiagnosticDone = true;
+        Log.i(TAG, "egress diagnostic: " + lastEgress);
+    }
+
+    /** 诊断专用铸链：匿名问一次 player，只要那条音频直链；失败回 null（细节只记日志）。 */
+    private String mintForDiagnostic(ClientSpec client, String videoId, String quality) {
+        Attempt attempt = tryClient(client, videoId, quality, null, anonymousVisitorData);
+        if (attempt.format == null) {
+            Log.i(TAG, "egress diagnostic mint failed for " + client.key + ": "
+                + attempt.failureKind + " (" + attempt.detail + ")");
+            return null;
+        }
+        String url = attempt.format.optString("url", "");
+        return url.isEmpty() ? null : url;
+    }
+
+    /**
+     * 五行 Range 矩阵：对一条链逐行问（行序见 EGRESS_MATRIX_RANGES，统一用铸链
+     * 客户端的 UA，只读响应头即断开），状态码拼成 matrix[...]。2026-08 起
+     * googlevideo 对无界 Range 回 403、对 ANDROID_VR 直链还有约 1 MiB 的取流
+     * 上限（LMS-YouTube #90 实测）——行 3（0-）/ 行 4（none）看无界门，
+     * 行 5（past1m）看上限，行 1/2 是有界基线。纯观测：这里没有成败门，
+     * 跑出什么记什么。
+     */
+    private String probeMatrix(ClientSpec client, String url) {
         StringBuilder matrix = new StringBuilder("matrix[");
-        matrix.append(EGRESS_MATRIX_LABELS[0]).append(':').append(baselineCode);
-        for (int i = 1; i < EGRESS_MATRIX_RANGES.length; i++) {
-            matrix.append(' ').append(EGRESS_MATRIX_LABELS[i]).append(':')
+        for (int i = 0; i < EGRESS_MATRIX_RANGES.length; i++) {
+            if (i > 0) matrix.append(' ');
+            matrix.append(EGRESS_MATRIX_LABELS[i]).append(':')
                 .append(egressProbeToken(client, url, EGRESS_MATRIX_RANGES[i]));
         }
-        lastEgress = matrix.append(']').toString();
-        return null;
+        return matrix.append(']').toString();
     }
 
     /** 矩阵里的一行：问一次，只读响应头即断开。返回状态码数字，或异常类名（连不上时）。 */
