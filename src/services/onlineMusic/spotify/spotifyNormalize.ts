@@ -16,6 +16,9 @@ export interface SpotifyTrack {
     name?: string;
     artists?: { items?: SpotifyArtistRow[] };
     albumOfTrack?: { uri?: string; name?: string; coverArt?: { sources?: SpotifyPicture[] } };
+    // The recording's ISRC, folded in by the Android translation layer from the Web API's
+    // `external_ids` (full track objects only; album rows upstream have none).
+    isrc?: string;
     duration?: { totalMilliseconds?: number };
     trackDuration?: { totalMilliseconds?: number };
 }
@@ -100,6 +103,7 @@ export const spotifySongOf = (
             id: albumId, name: track.albumOfTrack?.name || '', coverUrl: pictureOf(track.albumOfTrack?.coverArt?.sources), catalogRef: ref('album', albumId),
         },
         durationMs: Math.max(0, Number(track.duration?.totalMilliseconds ?? track.trackDuration?.totalMilliseconds) || 0),
+        ...(track.isrc ? { isrc: track.isrc } : {}),
         sourceRef: { kind: 'online', providerId: 'spotify', mediaId: id },
     };
 };

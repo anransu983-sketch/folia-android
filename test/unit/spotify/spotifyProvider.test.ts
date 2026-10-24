@@ -53,6 +53,14 @@ describe('Spotify rows', () => {
         expect(() => normalizeSpotifySong({})).toThrow('no id');
     });
 
+    it('carries a row\'s isrc into the song, and leaves the slot empty without one', () => {
+        // The Android translation layer folds the Web API's `external_ids.isrc` in as `isrc`;
+        // album rows upstream carry none, and their songs simply have no slot.
+        expect(normalizeSpotifySong(track('a', { isrc: 'USRC17607839' })).isrc).toBe('USRC17607839');
+        expect(normalizeSpotifySong(track('a')).isrc).toBeUndefined();
+        expect(spotifySongOf(track('a', { isrc: 'USRC17607839' }))?.isrc).toBe('USRC17607839');
+    });
+
     it('reads a track the way each query leaves parts of it out', () => {
         // A liked song has its uri beside it; a playlist row names its length differently.
         expect(spotifySongOf({ ...track('a'), uri: undefined }, { uri: `spotify:track:${id('b')}` })?.id).toBe(id('b'));

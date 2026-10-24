@@ -140,6 +140,9 @@ const trackOf = (track: any): any => {
             },
         } : {}),
         duration: { totalMilliseconds: Number(track.duration_ms ?? 0) || 0 },
+        // 完整曲目对象带 external_ids.isrc（专辑里的简化曲目没有）——Spotube 拿它当匹配缓存的键，
+        // 折回形状里留一格（spotifyNormalize 的 SpotifyTrack.isrc）。
+        ...(typeof track.external_ids?.isrc === 'string' && track.external_ids.isrc ? { isrc: track.external_ids.isrc } : {}),
     };
 };
 

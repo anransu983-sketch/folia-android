@@ -1448,6 +1448,9 @@ export type {
 // Extend SongResult to support local files and Navidrome files
 export interface UnifiedSong extends SongResult {
   sourceRef: PlaybackSourceRef;
+  // The recording's ISRC, where the platform's rows carry one (Spotify's full track objects do;
+  // its album rows do not). Spotube keys its match cache by it; nothing else reads it.
+  isrc?: string;
   // The row this song was read from, where its collection names its rows: a YouTube Music
   // playlist may hold a song twice, and a removal names the row. It says nothing of the song.
   collectionRowId?: string;
