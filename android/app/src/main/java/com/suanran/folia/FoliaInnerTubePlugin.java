@@ -98,6 +98,14 @@ public class FoliaInnerTubePlugin extends Plugin {
 
     // API key 是官方 App 内嵌的公开客户端密钥，值取自社区公开记录（yt-dlp 的客户端表）；
     // TV embedded 那把与本仓 Constants 里 WEB 的相同（embed 播放器页 ytcfg 的就是它，已逐字核对）。
+    // VISIONOS：2026 年当前免 PO token 的客户端，常量逐字抄 yt-dlp master 的
+    // INNERTUBE_CLIENTS['visionos']。该条目在 yt-dlp 表里没有专属 apiKey 字段、
+    // player 调用仍带共享的 ?key= 参数——本桥沿用与 WEB / TV embedded 相同的那把。
+    private static final ClientSpec VISIONOS = new ClientSpec(
+        "VISIONOS", "visionos", "VISIONOS", 101, "1.02",
+        "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+        "Apple", "RealityDevice17,1", "visionOS", "26.5.23O471", 0);
     private static final ClientSpec ANDROID_VR = new ClientSpec(
         "ANDROID_VR", "android_vr", "ANDROID_VR", 28, "1.65.10",
         "AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w",
@@ -119,8 +127,14 @@ public class FoliaInnerTubePlugin extends Plugin {
         "com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip",
         null, "SM-S908E", "Android", "16", 36);
 
-    /** 回退链（设计稿 §2.1）：主选 ANDROID_VR，依次 IOS、TV embedded、ANDROID 兜底。 */
-    private static final ClientSpec[] CHAIN = { ANDROID_VR, IOS, TV_EMBEDDED, ANDROID };
+    /**
+     * 回退链：主选 VISIONOS（yt-dlp 的无 JS 默认客户端，表内无 PO token 要求）。
+     * ANDROID_VR 降为 legacy 兜底——它已被 yt-dlp master 标 GVS PO token required，
+     * 且其直链有约 1,048,000 字节的取流上限（LMS-YouTube #90 / Kodi #1481 实测）。
+     * IOS、TV embedded、ANDROID 在 yt-dlp master 里同样带 token 门，匿名取链大概率
+     * 失败，留在链尾只作登录支线时的机会位。
+     */
+    private static final ClientSpec[] CHAIN = { VISIONOS, ANDROID_VR, IOS, TV_EMBEDDED, ANDROID };
     /** visitor_id 是网页系端点，用 WEB 客户端的公开参数（版本与 key 逐字抄本仓 Constants）。 */
     private static final String WEB_CLIENT_VERSION = "2.20260623.01.00";
     private static final String WEB_API_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
@@ -142,7 +156,7 @@ public class FoliaInnerTubePlugin extends Plugin {
     private final ReentrantLock resolveLock = new ReentrantLock();
     /** 匿名 visitorData 缓存（只存内存，冷启重取）；登录那份与 cookie 同源，每次登录链现换、不缓存。 */
     private volatile String anonymousVisitorData;
-    /** 最近一次出口自检的结论，给 status()/诊断看：0-0 ok; full-shape … / failed(...) / not run。 */
+    /** 最近一次出口自检的结论，给 status()/诊断看：matrix[...] / failed(...) / not run。 */
     private volatile String lastEgress = "not run";
 
     @PluginMethod
@@ -485,52 +499,66 @@ public class FoliaInnerTubePlugin extends Plugin {
         return stream;
     }
 
+    /** egress 矩阵的行序：Range 值（null = 不带 Range）与它在 lastEgress 文案里的标签。 */
+    private static final String[] EGRESS_MATRIX_RANGES = {
+        "bytes=0-0", "bytes=0-1023", "bytes=0-", null, "bytes=1048576-1049599"
+    };
+    private static final String[] EGRESS_MATRIX_LABELS = { "0-0", "0-1023", "0-", "none", "past1m" };
+
     /**
-     * 出口自检（设计稿 T1 探针的桥内形态）：选中直链后先替播放器问一个字节。
+     * 出口自检（设计稿 T1 探针的桥内形态）：选中直链后先替播放器把这条链问一遍。
      * 取链的请求与取流的请求若出口 IP 不一致，googlevideo 按链上绑的 IP 回 403——
      * 这一步在原生栈里先撞一遍，撞死了就换下一级客户端，而不是把死链交给播放器。
      * 返回 null = 通过；否则是失败结论（进 attempts 与 status 的 egress 行）。
      *
-     * 0-0 通过后追加一次对照探针（probeFullShape）：用与取流相同的形态（铸链客户端
-     * UA + 整段 Range）再问同一条链，只为把「整段取流是否被拒」这一事实记进
-     * lastEgress。**对照结果不改变本方法的成败语义**：resolve 仍以 0-0 的结论为准，
-     * 探针失败也照样放行，失败形态只出现在 status/诊断的 egress 行里。
+     * 第一行（bytes=0-0）是沿用至今的成败门：200/206 且应答不是文本页才算过，
+     * 不过就返回失败结论换下一级，语义与旧版一致；只有 UA 改了——矩阵五行统一用
+     * 铸链客户端的 UA（旧版基线用 OkHttp 默认 UA，与真实取流不是同一形态）。
+     * 基线过后把其余四行（0-1023 有界小段 / 0- 整段 / 无 Range / 越过 1 MiB 的
+     * 一段）也逐行问完，五行状态码拼成 matrix[...] 记进 lastEgress：2026-08 起
+     * googlevideo 对无界 Range 回 403、对 ANDROID_VR 直链还有约 1 MiB 的取流
+     * 上限（LMS-YouTube #90 实测），一次问全才分得清是哪道门在拦。
+     * **后四行是纯观测，不改变本方法的成败语义**：resolve 只以基线为准，
+     * 它们失败也照样放行，形态只出现在 status/诊断的 egress 行里。
      */
     private String checkEgress(ClientSpec client, String url) {
-        Request request = new Request.Builder().url(url).header("Range", "bytes=0-0").build();
-        try (Response response = http.newCall(request).execute()) {
+        int baselineCode;
+        try (Response response = egressProbe(client, url, EGRESS_MATRIX_RANGES[0])) {
+            baselineCode = response.code();
             String type = response.header("Content-Type", "");
-            if ((response.code() == 200 || response.code() == 206) && !type.startsWith("text/")) {
-                lastEgress = "0-0 ok; full-shape " + probeFullShape(client, url);
-                return null;
+            if (!((baselineCode == 200 || baselineCode == 206) && !type.startsWith("text/"))) {
+                lastEgress = "failed (HTTP " + baselineCode + ")";
+                return "egress: HTTP " + baselineCode;
             }
-            lastEgress = "failed (HTTP " + response.code() + ")";
-            return "egress: HTTP " + response.code();
         } catch (IOException | RuntimeException error) {
             lastEgress = "failed (" + error.getClass().getSimpleName() + ")";
             return "egress: " + error.getClass().getSimpleName();
         }
+        StringBuilder matrix = new StringBuilder("matrix[");
+        matrix.append(EGRESS_MATRIX_LABELS[0]).append(':').append(baselineCode);
+        for (int i = 1; i < EGRESS_MATRIX_RANGES.length; i++) {
+            matrix.append(' ').append(EGRESS_MATRIX_LABELS[i]).append(':')
+                .append(egressProbeToken(client, url, EGRESS_MATRIX_RANGES[i]));
+        }
+        lastEgress = matrix.append(']').toString();
+        return null;
     }
 
-    /**
-     * 对照探针：以取流的真实形态问同一条直链——UA 用铸链客户端的 userAgent、
-     * Range 用 bytes=0-（整段）。只读响应头（状态码 + Content-Type）即关闭断开，
-     * 不下载正文。返回值只是给 lastEgress 的事实字符串：ok / HTTP <code> / failed (...)。
-     */
-    private String probeFullShape(ClientSpec client, String url) {
-        Request request = new Request.Builder().url(url)
-            .header("User-Agent", client.userAgent)
-            .header("Range", "bytes=0-")
-            .build();
-        try (Response response = http.newCall(request).execute()) {
-            String type = response.header("Content-Type", "");
-            if ((response.code() == 200 || response.code() == 206) && !type.startsWith("text/")) {
-                return "ok";
-            }
-            return "HTTP " + response.code();
+    /** 矩阵里的一行：问一次，只读响应头即断开。返回状态码数字，或异常类名（连不上时）。 */
+    private String egressProbeToken(ClientSpec client, String url, String range) {
+        try (Response response = egressProbe(client, url, range)) {
+            return String.valueOf(response.code());
         } catch (IOException | RuntimeException error) {
-            return "failed (" + error.getClass().getSimpleName() + ")";
+            return error.getClass().getSimpleName();
         }
+    }
+
+    /** 一次 egress 探问：UA 用铸链客户端的；range 为 null 时不带 Range 头。调用方负责关应答。 */
+    private Response egressProbe(ClientSpec client, String url, String range) throws IOException {
+        Request.Builder request = new Request.Builder().url(url)
+            .header("User-Agent", client.userAgent);
+        if (range != null) request.header("Range", range);
+        return http.newCall(request.build()).execute();
     }
 
     private static final class Picked {
