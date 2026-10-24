@@ -30,13 +30,6 @@ vi.mock('@/services/onlineMusic/resourceCache', () => ({
     hasCachedSongCover: async () => true,
     saveSongAudioLevel: async () => undefined,
 }));
-vi.mock('@/services/onlineMusic/songMetadata', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('@/services/onlineMusic/songMetadata')>();
-    return {
-        ...actual,
-        getAudioSourceCacheLevel: (song: UnifiedSong, source: unknown) => actual.levelOfAudioSource(song, source as never),
-    };
-});
 vi.mock('@/services/playbackRecovery/mediaCacheGuard', () => ({
     clearCachedSongAudioDistrust: vi.fn(),
     isCachedSongAudioDistrusted: () => false,

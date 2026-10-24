@@ -144,7 +144,7 @@ export const isSpotubeNoMatchCause = (cause: unknown): cause is SpotubeNoMatchCa
 // 没匹配上在 provider 层能说的就是 not-playable（答了、却没给这首歌的音频）；
 // 「没有音频」这个案子（no-audio）由 describeSpotifyFailure 靠下面的标记翻出来，
 // 播放核对 no-audio 不记 cooldown、不重试，只跳歌加一句提示（设计失败表）。
-const spotubeNoMatchError = (song: UnifiedSong): OnlineProviderError => new OnlineProviderError(
+const spotubeNoMatchError = (song: SongResult): OnlineProviderError => new OnlineProviderError(
     'not-playable',
     `No playable match for "${song.name}".`,
     SPOTUBE_FAILURE_OWNER,
@@ -200,8 +200,8 @@ const searchSpotubeCandidates = async (query: string): Promise<SongResult[]> => 
     }
 };
 
-const spotubeTrackIdOf = (song: UnifiedSong): string => (
-    song.sourceRef.kind === 'online' ? String(song.sourceRef.mediaId) : String(song.id)
+const spotubeTrackIdOf = (song: SongResult): string => (
+    song.sourceRef?.kind === 'online' ? String(song.sourceRef.mediaId) : String(song.id)
 );
 
 /** 日志里的时长差：一位小数秒；未知（null 或负哨兵）记 -1.0。 */
@@ -217,9 +217,11 @@ const bestDeltaOf = (target: SpotubeTarget, candidates: SongResult[]): number | 
  * 一首 Spotify 歌 → 匹配到的录音 id。命中缓存直接用；没有就搜两次以内当场匹配并写缓存。
  * 没匹配上抛 spotubeNoMatchError（文案层翻成 no-audio）；搜索本身的失败经 translateSpotubeFailure。
  */
-const matchSongToVideoId = async (song: UnifiedSong): Promise<string> => {
+const matchSongToVideoId = async (song: SongResult): Promise<string> => {
     const trackId = spotubeTrackIdOf(song);
-    const key = spotubeMatchCacheKey({ isrc: song.isrc, trackId });
+    // isrc 只在 UnifiedSong 上有这个槽（SongResult 没有）；provider 交来的本就是它自己的歌。
+    const isrc = (song as UnifiedSong).isrc;
+    const key = spotubeMatchCacheKey({ isrc, trackId });
     const hit = await readSpotubeMatchCache(key);
     if (hit) {
         if (hit.match.ok) {
@@ -235,7 +237,7 @@ const matchSongToVideoId = async (song: UnifiedSong): Promise<string> => {
         artists: song.artists.map(artist => ({ name: artist.name })),
         album: { name: song.album.name },
         durationMs: song.durationMs,
-        ...(song.isrc ? { isrc: song.isrc } : {}),
+        ...(isrc ? { isrc } : {}),
     });
     let queriesRun = 1;
     const primaryCandidates = await searchSpotubeCandidates(buildSpotubePrimaryQuery(target, song.artists[0]?.name ?? ''));
@@ -270,10 +272,10 @@ const matchSongToVideoId = async (song: UnifiedSong): Promise<string> => {
  * 录音去取流。取流只需要候选的引用——拿 id 现拼一首桩歌给 omni，它按 sourceRef 找源、
  * 按 mediaId 取流；桩上其余字段用原歌的，日志与标题显示用得上。
  */
-export const resolveSpotubeAudioSource = async (song: UnifiedSong, quality: AudioQualityPreference): Promise<OmniAudioSource | null> => {
+export const resolveSpotubeAudioSource = async (song: SongResult, quality: AudioQualityPreference): Promise<OmniAudioSource | null> => {
     const videoId = await matchSongToVideoId(song);
     const { omni } = await import('../omni');
-    const stub: UnifiedSong = {
+    const stub: SongResult = {
         id: videoId,
         name: song.name,
         artists: song.artists,
