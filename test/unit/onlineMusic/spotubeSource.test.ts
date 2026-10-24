@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { SongResult, UnifiedSong } from '@/types';
+import { OnlineProviderError } from '@/types/onlineMusic';
 import type { SpotubeMatch } from '@/services/onlineMusic/spotify/spotubeMatch';
 
 // test/unit/onlineMusic/spotubeSource.test.ts
@@ -17,9 +19,17 @@ vi.mock('@/services/db', () => ({
     removeCacheEntries: async (keys: string[]) => { for (const key of keys) store.delete(key); },
 }));
 
+const omniMock = vi.hoisted(() => ({
+    searchProviderSongs: vi.fn(),
+    getAudioSource: vi.fn(),
+}));
+vi.mock('@/services/onlineMusic/omni', () => ({ omni: omniMock }));
+
 import {
+    isSpotubeNoMatchCause,
     pruneSpotubeMatchCache,
     readSpotubeMatchCache,
+    resolveSpotubeAudioSource,
     spotubeMatchCacheKey,
     writeSpotubeMatchCache,
 } from '@/services/onlineMusic/spotify/spotubeSource';
@@ -100,5 +110,130 @@ describe('spotube match cache pruning', () => {
         await writeSpotubeMatchCache(spotubeMatchCacheKey({ trackId: 'only' }), matched);
         await pruneSpotubeMatchCache();
         expect(store.size).toBe(1);
+    });
+});
+
+// —— 源编排：搜索（带 session）、回退查询、日志、失败翻译 ——
+
+const spotifySong = (over: Partial<UnifiedSong> = {}): UnifiedSong => ({
+    id: 'track1',
+    name: 'Blue Skies',
+    artists: [{ id: 'a1', name: 'Ella Moss' }],
+    album: { id: 'al1', name: 'Azure' },
+    durationMs: 200_000,
+    sourceRef: { kind: 'online', providerId: 'spotify', mediaId: 'track1' },
+    ...over,
+});
+
+const found = (id: string, name: string, artist: string, album: string, durationMs: number): SongResult => ({
+    id,
+    name,
+    artists: [{ id: `artist-${id}`, name: artist }],
+    album: { id: `album-${id}`, name: album },
+    durationMs,
+    sourceRef: { kind: 'online', providerId: 'ytm', mediaId: id },
+});
+const exactFound = (id = 'v1', durationMs = 200_400) => found(id, 'Blue Skies', 'Ella Moss', 'Azure', durationMs);
+
+const SOURCE = { url: 'https://media.example/audio', format: 'opus', quality: 'high' };
+
+describe('resolveSpotubeAudioSource', () => {
+    let logs: string[];
+    beforeEach(() => {
+        store.clear();
+        vi.useRealTimers();
+        logs = [];
+        vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => { logs.push(args.join(' ')); });
+        omniMock.searchProviderSongs.mockReset();
+        omniMock.getAudioSource.mockReset();
+        omniMock.getAudioSource.mockResolvedValue(SOURCE);
+    });
+
+    it('matches cold, streams the matched recording, and serves the second play from cache', async () => {
+        omniMock.searchProviderSongs.mockResolvedValue({ items: [exactFound()], hasMore: false, nextOffset: 1 });
+        const song = spotifySong();
+        await expect(resolveSpotubeAudioSource(song, 'high')).resolves.toBe(SOURCE);
+        expect(omniMock.searchProviderSongs).toHaveBeenCalledTimes(1);
+        expect(omniMock.searchProviderSongs).toHaveBeenCalledWith('ytm', 'Blue Skies Ella Moss', { limit: 20, offset: 0 }, { session: 'spotube' });
+        const stub = omniMock.getAudioSource.mock.calls[0][0] as UnifiedSong;
+        expect(stub.sourceRef).toEqual({ kind: 'online', providerId: 'ytm', mediaId: 'v1' });
+        expect(omniMock.getAudioSource.mock.calls[0][1]).toBe('high');
+        expect(logs).toContain('[Spotube] matched track1 -> v1 score=100 delta=0.4s query=title-artist cached=false');
+        expect(store.has('spotube:match:track:track1')).toBe(true);
+
+        await expect(resolveSpotubeAudioSource(song, 'high')).resolves.toBe(SOURCE);
+        expect(omniMock.searchProviderSongs).toHaveBeenCalledTimes(1);
+        expect(logs).toContain('[Spotube] cache hit track1 -> v1 (matcher v1)');
+    });
+
+    it('keys the cache by isrc when the song carries one', async () => {
+        omniMock.searchProviderSongs.mockResolvedValue({ items: [exactFound()], hasMore: false, nextOffset: 1 });
+        await resolveSpotubeAudioSource(spotifySong({ isrc: 'USRC10000001' }), 'high');
+        expect(store.has('spotube:match:isrc:USRC10000001')).toBe(true);
+    });
+
+    it('runs the title+album fallback query when the first answer sits in the retry band', async () => {
+        omniMock.searchProviderSongs
+            .mockResolvedValueOnce({ items: [exactFound('slow', 204_000)], hasMore: false, nextOffset: 1 })
+            .mockResolvedValueOnce({ items: [exactFound('v2')], hasMore: false, nextOffset: 1 });
+        await expect(resolveSpotubeAudioSource(spotifySong(), 'high')).resolves.toBe(SOURCE);
+        expect(omniMock.searchProviderSongs).toHaveBeenCalledTimes(2);
+        expect(omniMock.searchProviderSongs).toHaveBeenNthCalledWith(2, 'ytm', 'Blue Skies Azure', { limit: 20, offset: 0 }, { session: 'spotube' });
+        expect(logs).toContain('[Spotube] matched track1 -> v2 score=100 delta=0.4s query=title-album cached=false');
+    });
+
+    it('does not run the fallback query for a gate failure above the accept line', async () => {
+        const cover = found('cover', 'Blue Skies', 'Cover Band', 'Azure', 200_000);
+        omniMock.searchProviderSongs.mockResolvedValue({ items: [cover], hasMore: false, nextOffset: 1 });
+        await expect(resolveSpotubeAudioSource(spotifySong(), 'high')).rejects.toMatchObject({ code: 'not-playable' });
+        expect(omniMock.searchProviderSongs).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws a marked spotify-owned no-match and caches it negatively for a day', async () => {
+        const remix = found('remix', 'Blue Skies (Remix)', 'Ella Moss', 'Azure', 201_000);
+        omniMock.searchProviderSongs
+            .mockResolvedValueOnce({ items: [remix], hasMore: false, nextOffset: 1 })
+            .mockResolvedValue({ items: [], hasMore: false, nextOffset: 0 });
+        const song = spotifySong();
+        const first = await resolveSpotubeAudioSource(song, 'high').catch((error: unknown) => error);
+        expect(first).toBeInstanceOf(OnlineProviderError);
+        const failure = first as OnlineProviderError;
+        expect(failure.code).toBe('not-playable');
+        expect(failure.providerId).toBe('spotify');
+        expect(isSpotubeNoMatchCause(failure.cause)).toBe(true);
+        expect(isSpotubeNoMatchCause(new Error('x'))).toBe(false);
+        expect(logs).toContain('[Spotube] unmatched track1 "Blue Skies" reason=below-threshold best=74 delta=1.0s queries=2');
+
+        const searches = omniMock.searchProviderSongs.mock.calls.length;
+        await expect(resolveSpotubeAudioSource(song, 'high')).rejects.toMatchObject({ code: 'not-playable' });
+        expect(omniMock.searchProviderSongs).toHaveBeenCalledTimes(searches);
+        expect(logs).toContain('[Spotube] unmatched track1 "Blue Skies" reason=below-threshold best=74 delta=1.0s queries=0');
+    });
+
+    it('translates a bare anonymous-search failure into a spotify-owned network error, status carried', async () => {
+        const bare = Object.assign(new Error('socket blew up'), { httpStatus: 503 });
+        omniMock.searchProviderSongs.mockRejectedValue(bare);
+        const failure = await resolveSpotubeAudioSource(spotifySong(), 'high').catch((error: unknown) => error) as OnlineProviderError;
+        expect(failure).toBeInstanceOf(OnlineProviderError);
+        expect(failure.code).toBe('network');
+        expect(failure.providerId).toBe('spotify');
+        expect(failure.httpStatus).toBe(503);
+        expect(failure.cause).toBe(bare);
+    });
+
+    it('never lets a sign-in wall from the matched source escape as one: it becomes not-playable, owned by spotify', async () => {
+        omniMock.searchProviderSongs.mockResolvedValue({ items: [exactFound()], hasMore: false, nextOffset: 1 });
+        const wall = new OnlineProviderError('auth-required', 'sign in first', 'ytm');
+        omniMock.getAudioSource.mockRejectedValue(wall);
+        const failure = await resolveSpotubeAudioSource(spotifySong(), 'high').catch((error: unknown) => error) as OnlineProviderError;
+        expect(failure.code).toBe('not-playable');
+        expect(failure.providerId).toBe('spotify');
+        expect(failure.cause).toBe(wall);
+    });
+
+    it('passes a null source through untouched', async () => {
+        omniMock.searchProviderSongs.mockResolvedValue({ items: [exactFound()], hasMore: false, nextOffset: 1 });
+        omniMock.getAudioSource.mockResolvedValue(null);
+        await expect(resolveSpotubeAudioSource(spotifySong(), 'high')).resolves.toBeNull();
     });
 });
