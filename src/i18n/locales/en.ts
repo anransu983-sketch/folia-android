@@ -1415,6 +1415,7 @@ export default {
     "retryLater": "{{provider}}: try again later",
     "signInNeeded": "{{provider}} sign-in expired",
     "noAudio": "{{provider}} returned no audio",
+    "spotubeNoMatch": "No matching source for this song on YouTube Music",
     "audioUnplayable": "The audio cannot be played",
     "refused": "Request refused by {{provider}}",
     "noteCheckNetwork": "Check your network",

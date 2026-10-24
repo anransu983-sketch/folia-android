@@ -1,5 +1,7 @@
+import i18n from '../../../i18n/config';
 import { OnlineProviderError } from '../../../types/onlineMusic';
 import type { OnlineFailureDetail, OnlineFailureOperation } from '../../../types/onlineMusic';
+import { isSpotubeNoMatchCause } from './spotubeSource';
 
 // src/services/onlineMusic/spotify/spotifyFailure.ts
 // What a Spotify request for a song's audio or a collection's tracks that failed hands to the
@@ -16,6 +18,12 @@ const ASKED_TO_WAIT = 'Spotify asked to wait before trying again';
  * 界面也就不会说「稍后再试」。平台要求等多久（`Retry-After`）一并交出去。
  */
 export const describeSpotifyFailure = (_operation: OnlineFailureOperation, error: unknown): OnlineFailureDetail | null => {
+    // Spotube 没匹配上（spotubeSource 抛的 not-playable + cause 上的类型化标记）：翻成
+    // no-audio 并带自己的文案——靠标记认、不靠英文串。播放核对 no-audio 不记 cooldown、
+    // 不重试，跳过这首并提示这一句；toast 引的是这里返回的 message。
+    if (error instanceof OnlineProviderError && error.providerId === 'spotify' && isSpotubeNoMatchCause(error.cause)) {
+        return { case: 'no-audio', message: i18n.t('failure.spotubeNoMatch') };
+    }
     if (!(error instanceof OnlineProviderError) || error.providerId !== 'spotify' || error.code !== 'network') return null;
     const saidToWait = error.message === ASKED_TO_WAIT || error.httpStatus === 429;
     if (!saidToWait) return null;

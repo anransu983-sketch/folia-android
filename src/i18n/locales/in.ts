@@ -1415,6 +1415,7 @@ export default {
     "retryLater": "{{provider}}: coba lagi nanti",
     "signInNeeded": "Sesi masuk {{provider}} kedaluwarsa",
     "noAudio": "{{provider}} tidak mengembalikan audio",
+    "spotubeNoMatch": "Tidak ditemukan sumber yang cocok untuk lagu ini di YouTube Music",
     "audioUnplayable": "Audio tidak dapat diputar",
     "refused": "Permintaan ditolak oleh {{provider}}",
     "noteCheckNetwork": "Periksa jaringan",

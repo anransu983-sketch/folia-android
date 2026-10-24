@@ -1415,6 +1415,7 @@ export default {
     "retryLater": "{{provider}}要求稍后再试",
     "signInNeeded": "{{provider}}登录已失效",
     "noAudio": "{{provider}}未返回音频",
+    "spotubeNoMatch": "没在 YouTube Music 找到这首歌的对应音源",
     "audioUnplayable": "音频无法播放",
     "refused": "请求被{{provider}}拒绝",
     "noteCheckNetwork": "请检查网络",
