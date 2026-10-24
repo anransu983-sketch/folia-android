@@ -575,6 +575,7 @@ final class LocalAudioServer {
         String elementRange = range != null && range.startsWith("bytes=") ? range : null;
         boolean rangeRewritten = sentRange != null && !sentRange.equals(elementRange);
         Log.i(TAG, "remote-audio-probe req host=" + hostOf(target)
+            + " itag=" + itagOf(target)
             + " ua=" + (sentUserAgent == null ? "-"
                 : sentUserAgent.substring(0, Math.min(20, sentUserAgent.length())))
             + " range=" + (sentRange == null ? "-" : sentRange)
