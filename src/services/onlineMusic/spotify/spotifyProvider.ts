@@ -19,6 +19,8 @@ import { resetSpotifyRecommendations, spotifyRecommendations } from './spotifyRe
 import { describeSpotifyLoginFailure, spotifyLoginFailure } from './spotifyLoginFailure';
 import { getSpotifyLoginDiagnostics } from './spotifyInPageRuntime';
 import { describeSpotifyFailure } from './spotifyFailure';
+import { isSpotifyNativeAvailable } from './spotifyNative';
+import { resolveSpotubeAudioSource } from './spotubeSource';
 
 // src/services/onlineMusic/spotify/spotifyProvider.ts
 // Spotify adapter. Sign-in happens in the browser where the person is already signed in to
@@ -141,6 +143,9 @@ export const spotifyProvider: OnlineMusicProvider = {
         // Spotify's own audio, for paying accounts only (Spotify's rule for every player that is not
         // its own): a free account is answered `subscription-required`. The URL is the desktop app's own.
         async getAudioSource(song, quality) {
+            // 安卓走 Spotube：Spotify 只出元数据，音频用匹配到的别家录音（spotubeSource）。
+            // 判据与传输层同一个 isSpotifyNativeAvailable；桌面路（Electron 签名宿主取直链）原样不动。
+            if (isSpotifyNativeAvailable()) return resolveSpotubeAudioSource(song, quality);
             const id = requireSpotifySong(song);
             const startedAt = Date.now();
             const audio = await requestSpotify<SpotifyWireAudio>('audio', { id, quality });

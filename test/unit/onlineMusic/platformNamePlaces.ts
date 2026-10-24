@@ -102,6 +102,7 @@ export const PLATFORM_NAME_PLACES: Record<string, PlatformNamePlace> = {
     'src/services/onlineMusic/providerAccountCache.ts': { n: { kugou: 1 }, kind: 'doc' },
     'src/services/onlineMusic/providerRegistry.ts': { n: { netease: 2, qq: 2, kugou: 2, bodian: 2, ytm: 2, spotify: 4, qishui: 2 }, kind: 'list' },
     'src/services/onlineMusic/qq/qqProvider.ts': { n: { kugou: 1 }, kind: 'doc' },
+    'src/services/onlineMusic/spotify/spotubeSource.ts': { n: { ytm: 2 }, kind: 'question', why: 'Spotube legitimately names the source platform it queries' },
     'src/services/onlineMusic/qq/qqTransport.ts': { n: { netease: 1 }, kind: 'doc' },
     'src/services/onlineMusic/resourceCache.ts': { n: { netease: 2 }, kind: 'doc' },
     'src/services/onlineMusic/resourceKeys.ts': { n: { netease: 1, kugou: 1 }, kind: 'stored', why: 'cache keys: one platform\'s covers under a second key version, another\'s songs under keys from before the keys carried a platform' },
