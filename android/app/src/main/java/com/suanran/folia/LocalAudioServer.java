@@ -184,6 +184,55 @@ final class LocalAudioServer {
         return REMOTE_AUDIO_REFERER;
     }
 
+    /** 目标是不是 googlevideo（判定与 {@link #remoteAudioReferer} 里那处一致）。 */
+    private static boolean isGooglevideoTarget(String value) {
+        try {
+            String host = new URL(value).getHost();
+            return host != null && (host.equals("googlevideo.com") || host.endsWith(".googlevideo.com"));
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    /** googlevideo 上游 Range 的有界窗口：一窗 1 MiB。 */
+    private static final long GOOGLEVIDEO_RANGE_WINDOW_BYTES = 1_048_576L;
+
+    /**
+     * 把 <audio> 的 Range 收成 googlevideo 肯认的有界形态：
+     * `bytes=S-` / `bytes=S-E` → `bytes=S-min(E, S+窗口-1)`（无 E 时按窗口尾）；
+     * 没带 Range → `bytes=0-(窗口-1)`（无 Range 的 GET 同样被 403，LMS-YouTube #90）。
+     * 返回 null = 形状不在管辖内（后缀式 `bytes=-N`、多段、非 bytes 单位、起止非法）：
+     * 调用方回落旧行为（原样转发或不带），不替它拿主意。
+     */
+    private static String boundedRangeForGooglevideo(String range) {
+        if (range == null) return "bytes=0-" + (GOOGLEVIDEO_RANGE_WINDOW_BYTES - 1);
+        if (!range.startsWith("bytes=")) return null;
+        String spec = range.substring("bytes=".length()).trim();
+        if (spec.indexOf(',') >= 0) return null;
+        int dash = spec.indexOf('-');
+        if (dash <= 0) return null;
+        long start;
+        try {
+            start = Long.parseLong(spec.substring(0, dash).trim());
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+        if (start < 0) return null;
+        long windowEnd = start + GOOGLEVIDEO_RANGE_WINDOW_BYTES - 1;
+        if (windowEnd < start) windowEnd = Long.MAX_VALUE;
+        long end = windowEnd;
+        String endText = spec.substring(dash + 1).trim();
+        if (!endText.isEmpty()) {
+            try {
+                end = Math.min(Long.parseLong(endText), windowEnd);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+            if (end < start) return null;
+        }
+        return "bytes=" + start + "-" + end;
+    }
+
     private static boolean isRemoteAudioHostAllowed(String host) {
         if (host.isEmpty()) return false;
         for (String suffix : REMOTE_AUDIO_HOST_SUFFIXES) {
@@ -460,6 +509,12 @@ final class LocalAudioServer {
      * Range 原样往上带：拖进度条时 <audio> 会发 `bytes=xxx-`，上游回 206，
      * 我们也要回 206 并把它的 Content-Range 转给 WebView，否则播放器会认为
      * 服务端不支持拖动，重新整首下载一次。
+     *
+     * 例外是 googlevideo：2026-08 起它拒绝无界 Range（无 Range 与 `bytes=S-`
+     * 都回 403，LMS-YouTube #90 实测），而 <audio> 的首请求恰是 `bytes=0-`。
+     * 对 googlevideo 目标，上游 Range 一律先收成有界窗口再发（见
+     * {@link #boundedRangeForGooglevideo}）；应答照旧透传，元素拿到 206 的
+     * Content-Range 知道总数后会自己续发下一段，每一段都重新有界化。
      */
     private void streamRemoteAudio(
         BufferedOutputStream output,
@@ -494,12 +549,19 @@ final class LocalAudioServer {
             }
         }
         String range = headers.get("range");
-        if (range != null && range.startsWith("bytes=")) request.header("Range", range);
+        // googlevideo 目标先把 Range 收成有界窗口（见 boundedRangeForGooglevideo）；
+        // 收不了的形状与非 googlevideo 目标都照旧原样转发，行为与旧版一致。
+        String upstreamRange = isGooglevideoTarget(target) ? boundedRangeForGooglevideo(range) : null;
+        if (upstreamRange != null) {
+            request.header("Range", upstreamRange);
+        } else if (range != null && range.startsWith("bytes=")) {
+            request.header("Range", range);
+        }
 
         Request builtRequest = request.build();
         // 诊断埋点（remote-audio-probe）：取流真正发出的形态钉进日志——UA 前 20 字符、
-        // Range 原值、UA 出处（extra=调用方所带 / default=服务端默认）、目标 host。
-        // 只记 host，不记完整直链（签名参数不进日志）。
+        // Range 实际发出值与 rewritten 标记、UA 出处（extra=调用方所带 /
+        // default=服务端默认）、目标 host。只记 host，不记完整直链（签名参数不进日志）。
         String sentUserAgent = builtRequest.header("User-Agent");
         String sentRange = builtRequest.header("Range");
         boolean userAgentFromExtra = false;
@@ -508,11 +570,16 @@ final class LocalAudioServer {
                 if ("user-agent".equals(key.toLowerCase(Locale.ROOT))) userAgentFromExtra = true;
             }
         }
+        // rewritten=1 表示实际发出的 Range 与元素原样发来的不同（googlevideo 有界化
+        // 改的，或元素没带而这边补了一个）；非 googlevideo 目标恒为 0。
+        String elementRange = range != null && range.startsWith("bytes=") ? range : null;
+        boolean rangeRewritten = sentRange != null && !sentRange.equals(elementRange);
         Log.i(TAG, "remote-audio-probe req host=" + hostOf(target)
             + " ua=" + (sentUserAgent == null ? "-"
                 : sentUserAgent.substring(0, Math.min(20, sentUserAgent.length())))
             + " range=" + (sentRange == null ? "-" : sentRange)
-            + " via=" + (userAgentFromExtra ? "extra" : "default"));
+            + " via=" + (userAgentFromExtra ? "extra" : "default")
+            + " rewritten=" + (rangeRewritten ? "1" : "0"));
 
         Response upstream = remoteAudioClient.newCall(builtRequest).execute();
         // 诊断埋点（remote-audio-probe）：上游应答的状态/Content-Type 与开头 16 字节魔数。
